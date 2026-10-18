@@ -43,7 +43,7 @@ defmodule Luxpkgs.MixProject do
     [
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
-      {:dns_cluster, "~> 0.1.1"},
+      {:dns_cluster, "~> 0.3.1"},
       {:ecto_sql, "~> 3.10"},
       {:esbuild, "~> 0.9", runtime: Mix.env() == :dev},
       {:floki, ">= 0.30.0", only: :test},
