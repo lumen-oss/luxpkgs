@@ -32,7 +32,7 @@ defmodule Luxpkgs.Packages.Package do
     |> cast(attrs, [:name])
     |> validate_required([:name])
     |> unique_constraint(:name)
-    |> validate_format(:name, ~r/^[a-zA-Z0-9_\-]+$/)
+    |> validate_format(:name, ~r/^[a-zA-Z0-9_\.\-]+$/)
     # Recast here to prevent the user from changing the package name
     |> cast(attrs, [:summary, :description])
     |> validate_length(:name, min: 1, max: 20)

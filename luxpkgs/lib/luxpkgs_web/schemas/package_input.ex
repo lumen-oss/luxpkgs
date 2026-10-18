@@ -14,7 +14,7 @@ defmodule LuxpkgsWeb.Schemas.PackageInput do
           type: :string,
           description: "Unique package name",
           example: "lua-cjson",
-          pattern: "^[a-zA-Z0-9_-]+$"
+          pattern: "^[a-zA-Z0-9_.-]+$"
         },
         summary: %OpenApiSpex.Schema{
           type: :string,

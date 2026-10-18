@@ -117,8 +117,12 @@ defmodule LuxpkgsWeb.LuaRocksApiController do
           |> put_status(:service_unavailable)
           |> json(%{errors: ["Rockspec verifier service is unavailable"]})
 
-        {:error, %Ecto.Changeset{}} ->
-          put_status(conn, :bad_request)
+        {:error, %Ecto.Changeset{} = changeset} ->
+          conn
+          |> put_status(:bad_request)
+          |> json(%{
+            errors: Enum.map(changeset.errors, fn {field, {msg, _}} -> "#{field} #{msg}" end)
+          })
 
         {:error, reason} ->
           conn
@@ -146,7 +150,13 @@ defmodule LuxpkgsWeb.LuaRocksApiController do
 
     case Req.post(endpoint, json: %{rockspec: rockspec_text}) do
       {:ok, %Req.Response{status: 200, body: body}} ->
-        {:ok, body}
+        {:ok,
+         %{
+           package: body["package"],
+           version: body["version"],
+           summary: body["summary"],
+           description: body["description"]
+         }}
 
       {:ok, %Req.Response{status: 422}} ->
         {:error, :invalid_rockspec}

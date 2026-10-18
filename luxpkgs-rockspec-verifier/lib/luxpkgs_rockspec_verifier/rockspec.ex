@@ -5,7 +5,7 @@ defmodule LuxpkgsRockspecVerifier.Rockspec do
       }) do
     sandboxed_state = :luerl_sandbox.init()
 
-    Regex.match?(~r/^[a-zA-Z0-9_\-]+$/, expected_name) and
+    Regex.match?(~r/^[a-zA-Z0-9_\.\-]+$/, expected_name) and
       case :luerl_sandbox.run(
              rockspec,
              %{
