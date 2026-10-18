@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/lumen-oss/luxpkgs/compare/v0.5.0...v0.5.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* allow dots (.) in package names ([17118c0](https://github.com/lumen-oss/luxpkgs/commit/17118c0dac3e04161ae45931ff087016a65146d4))
+
 ## [0.5.0](https://github.com/lumen-oss/luxpkgs/compare/v0.4.0...v0.5.0) (2026-10-17)
 
 
