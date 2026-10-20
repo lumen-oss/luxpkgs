@@ -1,0 +1,39 @@
+<Layouts.app flash={@flash} current_scope={@current_scope}>
+  <div class="flex min-h-[calc(100vh-116px)] items-center justify-center px-4 py-12">
+    <div class="card w-full max-w-md bg-base-200 shadow-xl border border-base-300">
+      <div class="card-body gap-5">
+        <div class="space-y-2 text-center">
+          <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <.icon name={:shield_check} type={:outline} class="size-6" />
+          </div>
+          <h1 class="text-2xl font-semibold">Admin verification</h1>
+          <p class="text-sm text-base-content/70">
+            Enter the code from your authenticator app to enter the admin area.
+          </p>
+        </div>
+
+        <.form for={%{}} action={~p"/admin/verify"} method="post" class="space-y-4">
+          <.input
+            name="code"
+            value=""
+            type="text"
+            label="Verification Code"
+            placeholder="Enter 6-digit code"
+            required
+            autocomplete="one-time-code"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="6"
+          />
+          <button type="submit" class="btn btn-primary min-w-full font-semibold">
+            Verify admin access
+          </button>
+        </.form>
+
+        <p class="text-center text-xs text-base-content/60">
+          Backup codes work here too.
+        </p>
+      </div>
+    </div>
+  </div>
+</Layouts.app>

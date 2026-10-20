@@ -64,6 +64,25 @@ defmodule LuxpkgsWeb.Router do
     delete "/logout", UserAuthController, :log_out_user
   end
 
+  scope "/admin", LuxpkgsWeb do
+    pipe_through [:browser, :require_authenticated_user]
+
+    live_session :admin,
+      on_mount: [
+        {LuxpkgsWeb.UserAuth, :mount_current_scope},
+        {LuxpkgsWeb.AdminAuth, :require_admin}
+      ] do
+      live "/", AdminLive.Dashboard, :index
+    end
+  end
+
+  scope "/admin", LuxpkgsWeb do
+    pipe_through [:browser, :totp_verification, :require_authenticated_user]
+
+    get "/verify", AdminTotpController, :new
+    post "/verify", AdminTotpController, :create
+  end
+
   scope "/auth", LuxpkgsWeb do
     pipe_through :browser
 
