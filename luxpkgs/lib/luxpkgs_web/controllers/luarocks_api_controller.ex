@@ -73,7 +73,8 @@ defmodule LuxpkgsWeb.LuaRocksApiController do
             do: %{
               id: version_result.id,
               version_name: to_string(version_result.version),
-              module_id: version_result.package_id
+              module_id: version_result.package_id,
+              yanked: version_result.yanked_at != nil
             }
           )
       })

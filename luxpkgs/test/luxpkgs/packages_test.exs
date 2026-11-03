@@ -125,9 +125,58 @@ defmodule Luxpkgs.PackagesTest do
     test "get_release/1 returns nil for unknown id" do
       refute Packages.get_release(-1)
     end
+
+    test "yank_release/2 marks a release and unyank_release/2 clears it" do
+      scope = user_scope_fixture()
+      release = release_fixture(scope)
+
+      assert {:ok, yanked} = Packages.yank_release(scope, release)
+      assert yanked.yanked_at
+      assert Repo.get!(Luxpkgs.Packages.Release, release.id).yanked_at
+      assert Enum.any?(Repo.all(Luxpkgs.Audit.Event), &(&1.action == "release.yanked"))
+
+      assert {:ok, unyanked} = Packages.unyank_release(scope, yanked)
+      refute unyanked.yanked_at
+      assert Enum.any?(Repo.all(Luxpkgs.Audit.Event), &(&1.action == "release.unyanked"))
+    end
+
+    test "yank_release/2 rejects non-owners" do
+      scope = user_scope_fixture()
+      other_scope = user_scope_fixture()
+      release = release_fixture(scope)
+
+      assert {:error, :insufficient_permissions} = Packages.yank_release(other_scope, release)
+      refute Repo.get!(Luxpkgs.Packages.Release, release.id).yanked_at
+    end
+
+    test "latest_release/1 skips yanked releases" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      release_fixture(scope, package, version: "1.0.0")
+
+      release_fixture(scope, package,
+        version: "2.0.0",
+        yanked_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      )
+
+      package = Packages.get_package!(package.name)
+      assert Packages.latest_version(package) == "1.0.0"
+      assert Packages.latest_release(package).version == Version.parse!("1.0.0")
+    end
+
+    test "yanked releases stay available by exact version" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      release = release_fixture(scope, package, version: "1.0.0")
+
+      assert {:ok, _yanked} = Packages.yank_release(scope, release)
+
+      package = Packages.get_package!(package.name)
+
+      assert Packages.get_release_by_package_and_version(package, "1.0.0").id == release.id
+    end
   end
 
-  alias Luxpkgs.Packages.Release
   alias Luxpkgs.Repo
 
   defp set_status!(package, status) do
@@ -153,7 +202,7 @@ defmodule Luxpkgs.PackagesTest do
       scope = user_scope_fixture()
       package_fixture(scope)
       package_fixture(scope) |> set_status!(:hidden)
-      package_fixture(scope) |> set_status!(:yanked)
+      package_fixture(scope) |> set_status!(:hidden)
 
       assert {:ok, {packages, meta}} = Packages.list_packages_paginated(%{})
       assert length(packages) == 1
@@ -191,7 +240,7 @@ defmodule Luxpkgs.PackagesTest do
 
     test "get_package_by_user_and_name/2 excludes non-active packages" do
       scope = user_scope_fixture()
-      package = package_fixture(scope) |> set_status!(:yanked)
+      package = package_fixture(scope) |> set_status!(:hidden)
 
       refute Packages.get_package_by_user_and_name(scope.user, package.name)
     end
@@ -212,7 +261,7 @@ defmodule Luxpkgs.PackagesTest do
       Packages.increment_release_download_count(release)
       Packages.increment_release_download_count(release)
 
-      assert Repo.get!(Release, release.id).download_count == 2
+      assert Repo.get!(Luxpkgs.Packages.Release, release.id).download_count == 2
     end
   end
 end

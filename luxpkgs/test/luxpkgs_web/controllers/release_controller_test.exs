@@ -22,6 +22,16 @@ defmodule LuxpkgsWeb.ReleaseControllerTest do
       assert json_response(conn, 404)
     end
 
+    test "returns a yanked release by exact id", %{conn: conn, scope: scope} do
+      release = release_fixture(scope)
+      {:ok, _release} = Luxpkgs.Packages.yank_release(scope, release)
+
+      conn = get(conn, ~p"/api/releases/#{release.id}")
+
+      assert conn.status == 200
+      assert Luxpkgs.Repo.get!(Luxpkgs.Packages.Release, release.id).download_count == 1
+    end
+
     test "returns 404 for a release of a non-active package", %{conn: conn, scope: scope} do
       release = release_fixture(scope)
 

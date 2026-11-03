@@ -6,6 +6,7 @@ defmodule Luxpkgs.Packages do
   import Ecto.Query, warn: false
   alias Ecto.Multi
   alias Luxpkgs.Accounts.User
+  alias Luxpkgs.Audit
   alias Luxpkgs.Repo
 
   alias Luxpkgs.Packages.Package
@@ -333,6 +334,26 @@ defmodule Luxpkgs.Packages do
   end
 
   @doc """
+  Returns the highest release that is not yanked, or nil.
+  """
+  def latest_release(%Package{releases: releases}) when is_list(releases) do
+    releases
+    |> Enum.reject(& &1.yanked_at)
+    |> Enum.sort(fn a, b -> Version.compare(a.version, b.version) != :gt end)
+    |> List.last()
+  end
+
+  @doc """
+  Returns the latest release version as a string, or nil.
+  """
+  def latest_version(%Package{} = package) do
+    case latest_release(package) do
+      nil -> nil
+      release -> to_string(release.version)
+    end
+  end
+
+  @doc """
   Gets a single release.
 
   Raises `Ecto.NoResultsError` if the Release does not exist.
@@ -365,6 +386,65 @@ defmodule Luxpkgs.Packages do
     Release
     |> where(package_id: ^package.id, version: ^version)
     |> Repo.one()
+  end
+
+  @doc """
+  Marks a release as yanked. Owners can yank their own releases; yanked releases
+  stay downloadable by exact version but are skipped when resolving the latest version.
+  """
+  def yank_release(%Scope{} = scope, %Release{} = release),
+    do: set_release_yanked(scope, release, true)
+
+  @doc """
+  Removes the yanked mark from a release.
+  """
+  def unyank_release(%Scope{} = scope, %Release{} = release),
+    do: set_release_yanked(scope, release, false)
+
+  defp set_release_yanked(%Scope{user: %User{} = user} = scope, %Release{} = release, yanked?) do
+    release = Repo.preload(release, :package)
+    package = release.package
+
+    cond do
+      package.user_id != user.id ->
+        {:error, :insufficient_permissions}
+
+      not Scope.package_permitted?(scope, package) ->
+        {:error, :insufficient_permissions}
+
+      release.yanked_at != nil == yanked? ->
+        {:ok, release}
+
+      true ->
+        yanked_at =
+          if yanked?, do: DateTime.utc_now() |> DateTime.truncate(:second)
+
+        action = if yanked?, do: "release.yanked", else: "release.unyanked"
+
+        attrs = %{
+          type: :package,
+          action: action,
+          actor_label: user.username || user.email,
+          target_type: "release",
+          target_id: release.id,
+          target_label: "#{package.name} #{release.version}",
+          metadata: %{"package_id" => package.id, "version" => to_string(release.version)}
+        }
+
+        Multi.new()
+        |> Multi.update(:release, Ecto.Changeset.change(release, yanked_at: yanked_at))
+        |> Multi.insert(:audit, Audit.changeset(attrs))
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{release: release, audit: event}} ->
+            Audit.broadcast(event)
+            broadcast(scope, {:updated, release})
+            {:ok, release}
+
+          {:error, _step, reason, _changes} ->
+            {:error, reason}
+        end
+    end
   end
 
   @doc """

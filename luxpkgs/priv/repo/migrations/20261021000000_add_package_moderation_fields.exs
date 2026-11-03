@@ -14,7 +14,7 @@ defmodule Luxpkgs.Repo.Migrations.AddPackageModerationFields do
     create constraint(
              :packages,
              :packages_status_must_be_valid,
-             check: "status IN ('active', 'hidden', 'yanked')"
+             check: "status IN ('active', 'hidden')"
            )
   end
 end

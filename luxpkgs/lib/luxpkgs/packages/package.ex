@@ -20,7 +20,7 @@ defmodule Luxpkgs.Packages.Package do
     field :name, :string
     field :summary, :string
     field :description, :string
-    field :status, Ecto.Enum, values: [:active, :hidden, :yanked], default: :active
+    field :status, Ecto.Enum, values: [:active, :hidden], default: :active
     field :moderation_note, :string
     field :featured_at, :utc_datetime
     belongs_to :user, Luxpkgs.Accounts.User

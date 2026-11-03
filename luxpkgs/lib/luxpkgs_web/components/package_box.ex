@@ -39,10 +39,11 @@ defmodule LuxpkgsWeb.PackageBox do
     """
   end
 
-  defp latest_version([]), do: nil
-
   defp latest_version(releases) do
-    releases |> List.last() |> Map.get(:version)
+    releases
+    |> Enum.reject(& &1.yanked_at)
+    |> List.last()
+    |> then(&(&1 && Map.get(&1, :version)))
   end
 
   attr :packages, :map, required: true

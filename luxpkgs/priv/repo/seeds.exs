@@ -199,15 +199,20 @@ Repo.insert!(%Release{
 yanked_package =
   Repo.insert!(%Package{
     name: "yanked-demo",
-    summary: "Yanked package used to try out moderation",
-    description: "Only the owner can see this package page.",
-    user_id: demo_owner.id,
-    status: :yanked,
-    moderation_note: "Yanked by a moderator for testing."
+    summary: "Package with a yanked release used to try out yanking",
+    description: "The 2.0.0 release is yanked, so 1.0.0 stays the latest download.",
+    user_id: demo_owner.id
   })
 
 Repo.insert!(%Release{
   version: "1.0.0",
   rockspec_path: "luxpkgs-1.0.0-1.rockspec",
   package_id: yanked_package.id
+})
+
+Repo.insert!(%Release{
+  version: "2.0.0",
+  rockspec_path: "luxpkgs-1.0.0-1.rockspec",
+  package_id: yanked_package.id,
+  yanked_at: DateTime.utc_now() |> DateTime.truncate(:second)
 })

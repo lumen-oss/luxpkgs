@@ -14,11 +14,14 @@ defmodule LuxpkgsWeb.PackageLive.Show do
          |> assign(:page_title, "Package not found")}
 
       package ->
-        if package.status == :active or owner?(socket, package) do
+        owner? = owner?(socket, package)
+
+        if package.status == :active or owner? do
           {:ok,
            socket
            |> assign(:not_found, false)
-           |> assign(:package, package |> Luxpkgs.Repo.preload(:user))
+           |> assign(:owner, owner?)
+           |> assign(:package, Luxpkgs.Repo.preload(package, :user))
            |> assign(:page_title, package.name)}
         else
           {:ok,
@@ -27,6 +30,41 @@ defmodule LuxpkgsWeb.PackageLive.Show do
            |> assign(:page_title, "Package not found")}
         end
     end
+  end
+
+  def handle_event("yank_release", %{"id" => id}, socket) do
+    set_release_yanked(socket, id, :yank)
+  end
+
+  def handle_event("unyank_release", %{"id" => id}, socket) do
+    set_release_yanked(socket, id, :unyank)
+  end
+
+  defp set_release_yanked(socket, id, action) do
+    package = socket.assigns.package
+
+    with true <- socket.assigns[:owner] || false,
+         %Luxpkgs.Packages.Release{} = release <- Packages.get_release(id),
+         true <- release.package_id == package.id,
+         {:ok, _release} <- apply_release_action(action, socket, release) do
+      package = Packages.get_package_any(package.name) |> Luxpkgs.Repo.preload(:user)
+
+      {:noreply,
+       socket
+       |> assign(:package, package)
+       |> put_flash(:info, if(action == :yank, do: "Release yanked.", else: "Release unyanked."))}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not update release.")}
+    end
+  end
+
+  defp apply_release_action(:yank, socket, release) do
+    Packages.yank_release(socket.assigns.current_scope, release)
+  end
+
+  defp apply_release_action(:unyank, socket, release) do
+    Packages.unyank_release(socket.assigns.current_scope, release)
   end
 
   defp owner?(socket, package) do
@@ -48,9 +86,12 @@ defmodule LuxpkgsWeb.PackageLive.Show do
     end
   end
 
-  defp latest_version([]), do: "-"
-
-  defp latest_version(releases) do
-    "v#{releases |> List.last() |> Map.get(:version)}"
+  defp latest_version(package) do
+    case Packages.latest_release(package) do
+      nil -> "-"
+      release -> "v#{release.version}"
+    end
   end
+
+  defp latest_release(package), do: Packages.latest_release(package)
 end

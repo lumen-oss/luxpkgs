@@ -1,5 +1,4 @@
 defmodule LuxpkgsWeb.ReleaseJSON do
-  alias Luxpkgs.Packages.Package
   alias Luxpkgs.Packages.Release
 
   @doc """
@@ -19,7 +18,8 @@ defmodule LuxpkgsWeb.ReleaseJSON do
   defp data(%Release{} = release) do
     %{
       id: release.id,
-      version: to_string(release.version)
+      version: to_string(release.version),
+      yanked: release.yanked_at != nil
     }
   end
 end

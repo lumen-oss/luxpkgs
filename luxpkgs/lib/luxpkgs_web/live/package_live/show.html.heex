@@ -2,7 +2,7 @@
   <%= if @not_found do %>
     <.not_found
       title="Package not found"
-      message="The package you are looking for does not exist or was yanked."
+      message="The package you are looking for does not exist or is unavailable."
     />
   <% else %>
     <div class="min-h-screen bg-base-100">
@@ -46,18 +46,18 @@
               <div class="text-center sm:text-left">
                 <div class="text-sm text-base-content/70 mb-1">Latest Release</div>
                 <div class="font-mono font-semibold text-primary text-lg">
-                  {latest_version(@package.releases)}
+                  {latest_version(@package)}
                 </div>
                 <div class="text-xs text-base-content/70 mt-1">
                   {format_date(
-                    (List.last(@package.releases) || %{inserted_at: @package.inserted_at})
+                    (latest_release(@package) || %{inserted_at: @package.inserted_at})
                     |> Map.get(:inserted_at)
                   )}
                 </div>
               </div>
 
               <.link
-                :if={@package.status == :active}
+                :if={@package.status == :active and latest_release(@package)}
                 href={~p"/api/download/#{@package.name}"}
                 class="btn btn-primary w-full sm:w-auto"
               >
@@ -111,6 +111,9 @@
                           v{to_string(release.version)}
                         </span>
                       <% end %>
+                      <span :if={release.yanked_at} class="badge badge-warning badge-sm">
+                        Yanked
+                      </span>
                       <span class="text-sm text-base-content/70">
                         {format_date(release.inserted_at)}
                       </span>
@@ -119,6 +122,26 @@
                       <span class="text-sm text-base-content/70">
                         {format_count(release.download_count)} downloads
                       </span>
+                      <%= if @owner do %>
+                        <button
+                          :if={release.yanked_at}
+                          type="button"
+                          phx-click="unyank_release"
+                          phx-value-id={release.id}
+                          class="btn btn-xs btn-soft"
+                        >
+                          Unyank
+                        </button>
+                        <button
+                          :if={!release.yanked_at}
+                          type="button"
+                          phx-click="yank_release"
+                          phx-value-id={release.id}
+                          class="btn btn-xs btn-soft btn-warning"
+                        >
+                          Yank
+                        </button>
+                      <% end %>
                       <.link
                         :if={@package.status == :active}
                         href={~p"/api/download/#{@package.name}/#{to_string(release.version)}"}
