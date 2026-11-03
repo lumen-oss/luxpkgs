@@ -19,7 +19,8 @@ alias Luxpkgs.Packages.Package
 Repo.delete_all(RevokedKey)
 Repo.delete_all(Release)
 Repo.delete_all(Package)
-Repo.delete_all(User)
+
+# Users are kept so logins survive a reseed.
 
 luxpkgs_rockspec = """
 rockspec_format = "3.0"
@@ -88,12 +89,13 @@ File.write!(
 )
 
 user =
-  Repo.insert!(%User{
-    email: "admin@example.com",
-    provider: "github",
-    username: "admin",
-    aka: "admin"
-  })
+  Repo.get_by(User, email: "admin@example.com") ||
+    Repo.insert!(%User{
+      email: "admin@example.com",
+      provider: "github",
+      username: "admin",
+      aka: "admin"
+    })
 
 package =
   Repo.insert!(%Package{
@@ -167,3 +169,45 @@ for i <- 1..25 do
     package_id: package4.id
   })
 end
+
+# ------------------------------------------------
+
+# Moderation examples: visible to the owner at /package/<name>, absent everywhere public.
+# Set DEMO_OWNER_EMAIL to your own account email to test the owner banner.
+demo_owner =
+  case System.get_env("DEMO_OWNER_EMAIL") do
+    nil -> user
+    email -> Repo.get_by!(User, email: email)
+  end
+
+hidden_package =
+  Repo.insert!(%Package{
+    name: "hidden-demo",
+    summary: "Hidden package used to try out moderation",
+    description: "Only the owner can see this package page.",
+    user_id: demo_owner.id,
+    status: :hidden,
+    moderation_note: "Hidden by a moderator for testing."
+  })
+
+Repo.insert!(%Release{
+  version: "1.0.0",
+  rockspec_path: "luxpkgs-1.0.0-1.rockspec",
+  package_id: hidden_package.id
+})
+
+yanked_package =
+  Repo.insert!(%Package{
+    name: "yanked-demo",
+    summary: "Yanked package used to try out moderation",
+    description: "Only the owner can see this package page.",
+    user_id: demo_owner.id,
+    status: :yanked,
+    moderation_note: "Yanked by a moderator for testing."
+  })
+
+Repo.insert!(%Release{
+  version: "1.0.0",
+  rockspec_path: "luxpkgs-1.0.0-1.rockspec",
+  package_id: yanked_package.id
+})

@@ -35,10 +35,18 @@ defmodule Luxpkgs.Packages do
   end
 
   @doc """
+  Restricts a package query to public, active packages.
+  """
+  def visible(query \\ Package) do
+    where(query, [p], p.status == :active)
+  end
+
+  @doc """
   Returns a paginated list of packages using Flop.
   """
   def list_packages_paginated(flop_params \\ %{}) do
     case Package
+         |> visible()
          |> preload(:releases)
          |> Flop.validate_and_run(flop_params, for: Package) do
       {:ok, {packages, meta}} ->
@@ -57,7 +65,7 @@ defmodule Luxpkgs.Packages do
   def total_downloads_by_user(%User{id: user_id}) do
     Package
     |> join(:left, [p], r in Luxpkgs.Packages.Release, on: r.package_id == p.id)
-    |> where([p], p.user_id == ^user_id)
+    |> where([p], p.user_id == ^user_id and p.status == :active)
     |> select([_p, r], coalesce(sum(r.download_count), 0))
     |> Repo.one()
   end
@@ -75,6 +83,7 @@ defmodule Luxpkgs.Packages do
   """
   def list_featured(limit \\ 4) do
     Package
+    |> visible()
     |> join(:left, [p], r in Luxpkgs.Packages.Release, on: r.package_id == p.id)
     |> group_by([p], p.id)
     |> order_by([p, r], desc: fragment("COALESCE(SUM(?), 0)", r.download_count))
@@ -96,6 +105,7 @@ defmodule Luxpkgs.Packages do
     case Cachex.fetch(:search_cache, cache_key, fn _key ->
            results =
              Package
+             |> visible()
              |> where([p], ilike(p.name, ^"%#{query}%"))
              |> preload(:releases)
              |> Repo.all()
@@ -140,12 +150,32 @@ defmodule Luxpkgs.Packages do
   Raises `Ecto.NoResultsError` if the Package does not exist.
   """
   def get_package!(name) do
-    Repo.get_by!(Package, name: name)
+    Package
+    |> visible()
+    |> Repo.get_by!(name: name)
     |> Repo.preload(:releases)
     |> sort_releases()
   end
 
   def get_package(name) do
+    case Package |> visible() |> Repo.get_by(name: name) do
+      nil ->
+        nil
+
+      package ->
+        package
+        |> Repo.preload(:releases)
+        |> sort_releases()
+    end
+  end
+
+  def get_package_any!(name) do
+    Repo.get_by!(Package, name: name)
+    |> Repo.preload(:releases)
+    |> sort_releases()
+  end
+
+  def get_package_any(name) do
     case Repo.get_by(Package, name: name) do
       nil ->
         nil
@@ -324,6 +354,13 @@ defmodule Luxpkgs.Packages do
     Repo.get_by(Release, id: id)
   end
 
+  def get_public_release(id) do
+    Release
+    |> join(:inner, [r], p in Package, on: p.id == r.package_id)
+    |> where([r, p], r.id == ^id and p.status == :active)
+    |> Repo.one()
+  end
+
   def get_release_by_package_and_version(%Package{} = package, version) do
     Release
     |> where(package_id: ^package.id, version: ^version)
@@ -337,6 +374,7 @@ defmodule Luxpkgs.Packages do
     name_lower = String.downcase(name)
 
     Package
+    |> visible()
     |> where([p], p.user_id == ^user_id and ilike(p.name, ^name_lower))
     |> preload(:releases)
     |> Repo.one()
@@ -408,10 +446,10 @@ defmodule Luxpkgs.Packages do
     {:error, :insufficient_permissions}
   end
 
-  def increment_release_download_count(%Release{} = release) do
-    release
-    |> Ecto.Changeset.change(%{download_count: release.download_count + 1})
-    |> Repo.update!()
+  def increment_release_download_count(%Release{id: id}) do
+    Release
+    |> where([r], r.id == ^id)
+    |> Repo.update_all(inc: [download_count: 1])
   end
 
   # Regular scopes are not allowed to modify or create packages

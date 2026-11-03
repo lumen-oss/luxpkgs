@@ -6,7 +6,7 @@ defmodule LuxpkgsWeb.PackageLive.Show do
   import LuxpkgsWeb.Markdown, only: [markdown: 1]
 
   def mount(%{"name" => name}, _session, socket) do
-    case Packages.get_package(name) do
+    case Packages.get_package_any(name) do
       nil ->
         {:ok,
          socket
@@ -14,11 +14,25 @@ defmodule LuxpkgsWeb.PackageLive.Show do
          |> assign(:page_title, "Package not found")}
 
       package ->
-        {:ok,
-         socket
-         |> assign(:not_found, false)
-         |> assign(:package, package |> Luxpkgs.Repo.preload(:user))
-         |> assign(:page_title, package.name)}
+        if package.status == :active or owner?(socket, package) do
+          {:ok,
+           socket
+           |> assign(:not_found, false)
+           |> assign(:package, package |> Luxpkgs.Repo.preload(:user))
+           |> assign(:page_title, package.name)}
+        else
+          {:ok,
+           socket
+           |> assign(:not_found, true)
+           |> assign(:page_title, "Package not found")}
+        end
+    end
+  end
+
+  defp owner?(socket, package) do
+    case socket.assigns[:current_scope] do
+      %{user: %{id: id}} -> id == package.user_id
+      _ -> false
     end
   end
 

@@ -126,4 +126,93 @@ defmodule Luxpkgs.PackagesTest do
       refute Packages.get_release(-1)
     end
   end
+
+  alias Luxpkgs.Packages.Release
+  alias Luxpkgs.Repo
+
+  defp set_status!(package, status) do
+    package
+    |> Ecto.Changeset.change(status: status)
+    |> Repo.update!()
+  end
+
+  describe "visibility" do
+    import Luxpkgs.AccountsFixtures, only: [user_scope_fixture: 0]
+    import Luxpkgs.PackagesFixtures
+
+    test "get_package/1 hides non-active packages, get_package_any/1 does not" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+
+      refute Packages.get_package(package.name)
+      assert Packages.get_package_any(package.name).id == package.id
+      assert Packages.get_package_any!(package.name).id == package.id
+    end
+
+    test "list_packages_paginated/1 excludes non-active packages" do
+      scope = user_scope_fixture()
+      package_fixture(scope)
+      package_fixture(scope) |> set_status!(:hidden)
+      package_fixture(scope) |> set_status!(:yanked)
+
+      assert {:ok, {packages, meta}} = Packages.list_packages_paginated(%{})
+      assert length(packages) == 1
+      assert meta.total_count == 1
+    end
+
+    test "list_packages/3 excludes non-active packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+
+      assert Packages.list_packages(:exact, package.name, []).packages == []
+    end
+
+    test "list_featured/1 excludes non-active packages" do
+      scope = user_scope_fixture()
+      visible = package_fixture(scope)
+      hidden = package_fixture(scope) |> set_status!(:hidden)
+
+      release_fixture(scope, hidden)
+      visible_release = release_fixture(scope, visible)
+      Packages.increment_release_download_count(visible_release)
+
+      assert [%{name: name}] = Packages.list_featured(4)
+      assert name == visible.name
+    end
+
+    test "total_downloads_by_user/1 excludes non-active packages" do
+      scope = user_scope_fixture()
+      hidden = package_fixture(scope) |> set_status!(:hidden)
+      release = release_fixture(scope, hidden)
+      Packages.increment_release_download_count(release)
+
+      assert Packages.total_downloads_by_user(scope.user) == 0
+    end
+
+    test "get_package_by_user_and_name/2 excludes non-active packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:yanked)
+
+      refute Packages.get_package_by_user_and_name(scope.user, package.name)
+    end
+
+    test "get_public_release/1 only returns releases of active packages" do
+      scope = user_scope_fixture()
+      release = release_fixture(scope)
+      assert Packages.get_public_release(release.id).id == release.id
+
+      Luxpkgs.Packages.Package |> Repo.get!(release.package_id) |> set_status!(:hidden)
+      refute Packages.get_public_release(release.id)
+    end
+
+    test "increment_release_download_count/1 increments atomically" do
+      scope = user_scope_fixture()
+      release = release_fixture(scope)
+
+      Packages.increment_release_download_count(release)
+      Packages.increment_release_download_count(release)
+
+      assert Repo.get!(Release, release.id).download_count == 2
+    end
+  end
 end
