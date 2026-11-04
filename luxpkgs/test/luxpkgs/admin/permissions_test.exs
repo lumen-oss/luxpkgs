@@ -9,7 +9,7 @@ defmodule Luxpkgs.Admin.PermissionsTest do
 
     assert Permissions.can?(admin, :view_dashboard)
     assert Permissions.can?(admin, :hide_package)
-    assert Permissions.can?(admin, :remove_package)
+    assert Permissions.can?(admin, :feature_package)
     assert Permissions.can?(admin, :suspend_user)
     assert Permissions.can?(admin, :view_audit)
   end
@@ -25,7 +25,7 @@ defmodule Luxpkgs.Admin.PermissionsTest do
   test "moderators cannot perform admin-only actions" do
     moderator = %Admin{active: true, role: :moderator}
 
-    refute Permissions.can?(moderator, :remove_package)
+    refute Permissions.can?(moderator, :feature_package)
     refute Permissions.can?(moderator, :suspend_user)
     refute Permissions.can?(moderator, :transfer_ownership)
     refute Permissions.can?(moderator, :view_audit)

@@ -5,6 +5,7 @@ defmodule LuxpkgsWeb.PackageBox do
   attr :description, :string, default: ""
   attr :version, :string
   attr :download_count, :integer, default: 0
+  attr :status, :atom, default: :active
 
   def package(assigns) do
     ~H"""
@@ -15,9 +16,12 @@ defmodule LuxpkgsWeb.PackageBox do
       <div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-box hover:border-primary/40 transition-colors duration-200 p-6">
         <div class="space-y-4">
           <div class="flex items-start justify-between">
-            <h2 class="text-lg font-semibold text-base-content group-hover:text-primary transition-colors">
-              {@name}
-            </h2>
+            <div class="flex items-center gap-2">
+              <h2 class="text-lg font-semibold text-base-content group-hover:text-primary transition-colors">
+                {@name}
+              </h2>
+              <span :if={@status == :hidden} class="badge badge-warning badge-sm">Hidden</span>
+            </div>
             <div class="bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-xs font-mono">
               {if @version, do: "v#{@version}", else: "—"}
             </div>

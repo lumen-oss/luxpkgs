@@ -264,4 +264,88 @@ defmodule Luxpkgs.PackagesTest do
       assert Repo.get!(Luxpkgs.Packages.Release, release.id).download_count == 2
     end
   end
+
+  describe "moderation" do
+    import Luxpkgs.AccountsFixtures, only: [user_scope_fixture: 0]
+    import Luxpkgs.AdminFixtures
+    import Luxpkgs.PackagesFixtures
+
+    alias Luxpkgs.Packages.Package
+
+    test "hide_package/2 hides the package and records an audit event" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :moderator})
+
+      assert {:ok, hidden} = Packages.hide_package(admin, package)
+      assert hidden.status == :hidden
+
+      assert [event] = Luxpkgs.Audit.list_events()
+      assert event.action == "package.hidden"
+      assert event.actor_admin_id == admin.id
+      assert event.target_id == package.id
+    end
+
+    test "hide_package/2 clears the search cache" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :moderator})
+
+      assert Packages.list_packages(:exact, package.name, []).packages != []
+      assert {:ok, _package} = Packages.hide_package(admin, package)
+      assert Packages.list_packages(:exact, package.name, []).packages == []
+    end
+
+    test "unhide_package/2 makes a hidden package visible again" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+      admin = admin_fixture(%{role: :moderator})
+
+      assert {:ok, active} = Packages.unhide_package(admin, package)
+      assert active.status == :active
+    end
+
+    test "moderators cannot feature packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      moderator = admin_fixture(%{role: :moderator})
+
+      assert {:error, :insufficient_permissions} = Packages.feature_package(moderator, package)
+    end
+
+    test "admins can feature and unfeature packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:ok, featured} = Packages.feature_package(admin, package)
+      assert featured.featured_at
+
+      assert {:ok, unfeatured} = Packages.unfeature_package(admin, featured)
+      refute unfeatured.featured_at
+    end
+
+    test "list_packages_admin/1 filters by search, status and featured" do
+      scope = user_scope_fixture()
+      active = package_fixture(scope, %{name: "admin_active"})
+      hidden = package_fixture(scope, %{name: "admin_hidden"}) |> set_status!(:hidden)
+      admin = admin_fixture(%{role: :admin})
+      {:ok, featured} = Packages.feature_package(admin, active)
+
+      ids =
+        Packages.list_packages_admin(search: scope.user.username).packages
+        |> Enum.map(& &1.id)
+        |> Enum.sort()
+
+      assert ids == Enum.sort([active.id, hidden.id])
+
+      assert [%{id: id}] = Packages.list_packages_admin(status: "hidden").packages
+      assert id == hidden.id
+
+      assert [%{id: id}] = Packages.list_packages_admin(featured: "true").packages
+      assert id == featured.id
+
+      assert Packages.list_packages_admin(search: "admin_active").total_count == 1
+    end
+  end
 end

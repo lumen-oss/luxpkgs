@@ -6,6 +6,8 @@ defmodule Luxpkgs.Packages do
   import Ecto.Query, warn: false
   alias Ecto.Multi
   alias Luxpkgs.Accounts.User
+  alias Luxpkgs.Admin.Admin
+  alias Luxpkgs.Admin.Permissions
   alias Luxpkgs.Audit
   alias Luxpkgs.Repo
 
@@ -44,10 +46,14 @@ defmodule Luxpkgs.Packages do
 
   @doc """
   Returns a paginated list of packages using Flop.
+
+  Pass `include_hidden: true` to include hidden packages, for example when an
+  owner is viewing their own profile.
   """
-  def list_packages_paginated(flop_params \\ %{}) do
-    case Package
-         |> visible()
+  def list_packages_paginated(flop_params \\ %{}, opts \\ []) do
+    query = if Keyword.get(opts, :include_hidden, false), do: Package, else: visible()
+
+    case query
          |> preload(:releases)
          |> Flop.validate_and_run(flop_params, for: Package) do
       {:ok, {packages, meta}} ->
@@ -63,13 +69,74 @@ defmodule Luxpkgs.Packages do
   Returns the total download count across all packages published by the
   given user.
   """
-  def total_downloads_by_user(%User{id: user_id}) do
+  def total_downloads_by_user(%User{id: user_id}, opts \\ []) do
     Package
     |> join(:left, [p], r in Luxpkgs.Packages.Release, on: r.package_id == p.id)
-    |> where([p], p.user_id == ^user_id and p.status == :active)
+    |> where([p], p.user_id == ^user_id)
+    |> maybe_active_only(Keyword.get(opts, :include_hidden, false))
     |> select([_p, r], coalesce(sum(r.download_count), 0))
     |> Repo.one()
   end
+
+  defp maybe_active_only(query, true), do: query
+  defp maybe_active_only(query, false), do: where(query, [p], p.status == :active)
+
+  @doc """
+  Returns a paginated package list for the admin area, including hidden
+  packages. Supports a text search over package name, summary and owner
+  username, plus status and featured filters.
+  """
+  def list_packages_admin(opts \\ []) do
+    page_size = 20
+    page = max(Keyword.get(opts, :page, 1), 1)
+    search = opts |> Keyword.get(:search, "") |> to_string() |> String.trim()
+
+    query =
+      Package
+      |> join(:inner, [p], u in User, on: u.id == p.user_id)
+      |> filter_admin_status(Keyword.get(opts, :status, "all"))
+      |> filter_admin_featured(Keyword.get(opts, :featured, "all"))
+      |> filter_admin_search(search)
+
+    total_count = Repo.aggregate(query, :count, :id)
+
+    packages =
+      query
+      |> order_by([p], desc: p.updated_at)
+      |> limit(^page_size)
+      |> offset(^((page - 1) * page_size))
+      |> preload([:user, :releases])
+      |> Repo.all()
+      |> Enum.map(&sort_releases/1)
+
+    %{
+      packages: packages,
+      total_count: total_count,
+      page: page,
+      page_size: page_size,
+      total_pages: max(ceil(total_count / page_size), 1)
+    }
+  end
+
+  defp filter_admin_search(query, ""), do: query
+
+  defp filter_admin_search(query, search) do
+    pattern = "%#{search}%"
+
+    where(
+      query,
+      [p, u],
+      ilike(p.name, ^pattern) or ilike(p.summary, ^pattern) or ilike(u.username, ^pattern)
+    )
+  end
+
+  defp filter_admin_status(query, "active"), do: where(query, [p], p.status == :active)
+  defp filter_admin_status(query, "hidden"), do: where(query, [p], p.status == :hidden)
+  defp filter_admin_status(query, _status), do: query
+
+  defp filter_admin_featured(query, "true"), do: where(query, [p], not is_nil(p.featured_at))
+  defp filter_admin_featured(query, "false"), do: where(query, [p], is_nil(p.featured_at))
+  defp filter_admin_featured(query, _featured), do: query
 
   @doc """
   Returns the most popular packages ordered by total downloads.
@@ -271,6 +338,107 @@ defmodule Luxpkgs.Packages do
 
   def update_package(_, _) do
     {:error, :insufficient_permissions}
+  end
+
+  @doc """
+  Hides a package from public view. Moderators and admins can hide packages.
+  """
+  def hide_package(%Admin{} = admin, %Package{} = package, attrs \\ %{}) do
+    set_package_status(admin, package, :hidden, "package.hidden", :hide_package, attrs)
+  end
+
+  @doc """
+  Makes a hidden package public again.
+  """
+  def unhide_package(%Admin{} = admin, %Package{} = package) do
+    set_package_status(admin, package, :active, "package.unhidden", :unhide_package, %{})
+  end
+
+  @doc """
+  Marks a package as featured.
+  """
+  def feature_package(%Admin{} = admin, %Package{} = package) do
+    set_package_featured(admin, package, true)
+  end
+
+  @doc """
+  Removes the featured mark from a package.
+  """
+  def unfeature_package(%Admin{} = admin, %Package{} = package) do
+    set_package_featured(admin, package, false)
+  end
+
+  defp set_package_status(admin, package, status, action, permission, attrs) do
+    if Permissions.can?(admin, permission) do
+      if package.status == status do
+        {:ok, package}
+      else
+        moderate_package(
+          admin,
+          package,
+          action,
+          put_moderation_note(%{status: status}, attrs),
+          %{"from" => to_string(package.status), "to" => to_string(status)}
+        )
+      end
+    else
+      {:error, :insufficient_permissions}
+    end
+  end
+
+  defp set_package_featured(admin, package, featured?) do
+    if Permissions.can?(admin, :feature_package) do
+      if package.featured_at != nil == featured? do
+        {:ok, package}
+      else
+        featured_at =
+          if featured?, do: DateTime.utc_now() |> DateTime.truncate(:second)
+
+        action = if featured?, do: "package.featured", else: "package.unfeatured"
+
+        moderate_package(admin, package, action, %{featured_at: featured_at}, %{
+          "featured" => featured?
+        })
+      end
+    else
+      {:error, :insufficient_permissions}
+    end
+  end
+
+  defp put_moderation_note(changes, %{"moderation_note" => note}) when is_binary(note) do
+    Map.put(changes, :moderation_note, note)
+  end
+
+  defp put_moderation_note(changes, _attrs), do: changes
+
+  defp moderate_package(%Admin{} = admin, %Package{} = package, action, changes, metadata) do
+    admin = Repo.preload(admin, :user)
+
+    attrs = %{
+      type: :package,
+      action: action,
+      actor_admin_id: admin.id,
+      actor_label: admin.user.username || admin.user.email,
+      target_type: "package",
+      target_id: package.id,
+      target_label: package.name,
+      metadata: metadata
+    }
+
+    Multi.new()
+    |> Multi.update(:package, Ecto.Changeset.change(package, changes))
+    |> Multi.insert(:audit, Audit.changeset(attrs))
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{package: package, audit: event}} ->
+        Audit.broadcast(event)
+        Cachex.clear(:search_cache)
+        broadcast(Scope.for_package(package), {:updated, package})
+        {:ok, package}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
+    end
   end
 
   @doc """

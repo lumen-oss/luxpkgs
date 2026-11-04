@@ -125,6 +125,11 @@ defmodule LuxpkgsWeb.LuaRocksApiController do
             errors: Enum.map(changeset.errors, fn {field, {msg, _}} -> "#{field} #{msg}" end)
           })
 
+        {:error, :package_hidden} ->
+          conn
+          |> put_status(:forbidden)
+          |> json(%{errors: ["Package is hidden"]})
+
         {:error, reason} ->
           conn
           |> put_status(:internal_server_error)
@@ -175,7 +180,10 @@ defmodule LuxpkgsWeb.LuaRocksApiController do
     result =
       Multi.new()
       |> Multi.run(:package, fn _repo, _changes ->
-        case Packages.get_package(package_name_lower) do
+        case Packages.get_package_any(package_name_lower) do
+          %Package{status: :hidden} ->
+            {:error, :package_hidden}
+
           %Package{} = package ->
             if package.user_id == scope.user.id do
               {:ok, package}

@@ -73,6 +73,7 @@ defmodule LuxpkgsWeb.Router do
         {LuxpkgsWeb.AdminAuth, :require_admin}
       ] do
       live "/", AdminLive.Dashboard, :index
+      live "/packages", AdminLive.Packages, :index
     end
   end
 
