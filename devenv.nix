@@ -7,6 +7,8 @@ in
 {
     env.DATABASE_URL="postgres://${user}:${pass}@127.0.0.1/luxpkgs";
     env.MIX_TAILWIND_PATH = "${pkgs.tailwindcss_4}/bin/tailwindcss";
+    env.PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+    env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
 
     dotenv = {
         enable = true;
@@ -21,11 +23,12 @@ in
     languages.nix.enable = true;
 
     packages = [
-      pkgs.pnpm          # Bundled JS dependencies
-      pkgs.alejandra     # Nix formatter
-      pkgs.tailwindcss_4 # We cannot use the bundled TailwindCSS CLI from Phoenix on NixOS
-      pkgs.inotify-tools # Required for file watching on Phoenix
-      pkgs.watchman      # Required for file watching on TailwindCSS CLI
+      pkgs.pnpm           # Bundled JS dependencies
+      pkgs.alejandra      # Nix formatter
+      pkgs.tailwindcss_4  # We cannot use the bundled TailwindCSS CLI from Phoenix on NixOS
+      pkgs.inotify-tools  # Required for file watching on Phoenix
+      pkgs.watchman       # Required for file watching on TailwindCSS CLI
+      pkgs.playwright-mcp # Playwright MCP server using the Nix-managed browsers
     ];
 
     # https://devenv.sh/services/
