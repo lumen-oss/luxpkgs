@@ -1,65 +1,92 @@
-<div class="min-h-screen bg-base-200 lg:grid lg:grid-cols-[16rem_1fr]">
-  <aside class="hidden border-r border-base-300 bg-base-300 lg:flex lg:flex-col">
-    <div class="border-b border-base-300 p-6">
-      <.link navigate={~p"/"} class="flex items-center gap-2 text-lg font-semibold">
-        <.logo class="h-7 w-auto" />
-        <span>Luxpkgs Admin</span>
-      </.link>
-    </div>
+<div class="drawer min-h-screen bg-base-200 lg:drawer-open">
+  <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
 
-    <nav class="menu flex-1 gap-2 p-4">
-      <li>
-        <.link navigate={~p"/admin"} class="active">
-          <.icon name={:shield_check} type={:outline} class="size-4" /> Dashboard
-        </.link>
-      </li>
-      <li>
-        <.link navigate={~p"/admin/packages"}>
-          <.icon name={:folder} type={:outline} class="size-4" /> Packages
-        </.link>
-      </li>
-      <li>
-        <.link navigate={~p"/"}>
-          <.icon name={:arrow_left} type={:outline} class="size-4" /> Back to site
-        </.link>
-      </li>
-    </nav>
+  <div class="drawer-content flex min-h-screen flex-col">
+    <a
+      href="#admin-main"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-box focus:bg-base-100 focus:px-4 focus:py-2 focus:text-base-content focus:shadow-md"
+    >
+      Skip to content
+    </a>
 
-    <div class="space-y-3 border-t border-base-300 p-4">
-      <div class="flex items-center gap-3">
-        <%= if @current_admin.user.avatar_url do %>
-          <img
-            src={@current_admin.user.avatar_url}
-            alt={@current_admin.user.username}
-            class="h-9 w-9 rounded-full"
-          />
-        <% else %>
-          <div class="avatar avatar-placeholder">
-            <div class="w-9 rounded-full bg-primary text-primary-content">
-              <span>{String.first(@current_admin.user.username)}</span>
-            </div>
-          </div>
-        <% end %>
-        <div class="min-w-0">
-          <p class="truncate font-medium">{@current_admin.user.username}</p>
-          <p class="truncate text-xs uppercase tracking-wide text-base-content/60">
-            {@current_admin.role}
-          </p>
-        </div>
+    <header class="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-base-300 bg-base-100/95 px-4 py-3 backdrop-blur lg:hidden">
+      <div class="flex min-w-0 items-center gap-2">
+        <label
+          for="admin-drawer"
+          class="btn btn-ghost btn-sm btn-square hidden md:inline-flex lg:hidden"
+          aria-label="Open admin navigation"
+        >
+          <.icon name={:menu_2} type={:outline} class="size-5" />
+        </label>
+        <.link navigate={~p"/admin"} class="flex min-w-0 items-center gap-2 font-semibold">
+          <.logo class="h-6 w-auto shrink-0" />
+          <span class="hidden truncate sm:inline">Luxpkgs Admin</span>
+          <span class="truncate sm:hidden">Admin</span>
+        </.link>
       </div>
-      <.link href={~p"/logout"} method="delete" class="btn btn-ghost btn-sm w-full justify-start">
-        Log out
-      </.link>
-    </div>
-  </aside>
 
-  <div class="flex min-h-screen flex-col">
-    <header class="flex items-center justify-between border-b border-base-300 bg-base-100 px-4 py-3 lg:hidden">
-      <.link navigate={~p"/admin"} class="font-semibold">Luxpkgs Admin</.link>
-      <span class="badge badge-outline uppercase">{@current_admin.role}</span>
+      <div class="flex shrink-0 items-center gap-2">
+        <span class="badge badge-outline uppercase">{@current_admin.role}</span>
+        <.link href={~p"/logout"} method="delete" class="btn btn-ghost btn-sm">
+          Log out
+        </.link>
+      </div>
     </header>
 
-    <main id="admin-main" class="flex-1 p-4 lg:p-8">{render_slot(@inner_block)}</main>
+    <main
+      id="admin-main"
+      tabindex="-1"
+      class="flex-1 p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-6 md:pb-8 lg:p-8"
+    >
+      {render_slot(@inner_block)}
+    </main>
+  </div>
+
+  <div class="drawer-side z-40 hidden md:grid">
+    <label for="admin-drawer" aria-label="Close admin navigation" class="drawer-overlay"></label>
+    <aside class="flex h-full w-64 flex-col border-r border-base-300 bg-base-300">
+      <div class="border-b border-base-300 p-6">
+        <.link navigate={~p"/admin"} class="flex items-center gap-2 text-lg font-semibold">
+          <.logo class="h-7 w-auto" />
+          <span>Luxpkgs Admin</span>
+        </.link>
+      </div>
+
+      <LuxpkgsWeb.AdminNav.nav active={@active} variant={:sidebar} />
+
+      <div class="space-y-3 border-t border-base-300 p-4">
+        <div class="flex items-center gap-3">
+          <%= if @current_admin.user.avatar_url do %>
+            <img
+              src={@current_admin.user.avatar_url}
+              alt={@current_admin.user.username}
+              class="h-9 w-9 rounded-full"
+            />
+          <% else %>
+            <div class="avatar avatar-placeholder">
+              <div class="w-9 rounded-full bg-primary text-primary-content">
+                <span>{String.first(@current_admin.user.username)}</span>
+              </div>
+            </div>
+          <% end %>
+          <div class="min-w-0">
+            <p class="truncate font-medium">{@current_admin.user.username}</p>
+            <p class="truncate text-xs uppercase tracking-wide text-base-content/60">
+              {@current_admin.role}
+            </p>
+          </div>
+        </div>
+        <.link
+          href={~p"/logout"}
+          method="delete"
+          class="btn btn-ghost btn-sm w-full justify-start"
+        >
+          Log out
+        </.link>
+      </div>
+    </aside>
   </div>
 </div>
+
+<LuxpkgsWeb.AdminNav.nav active={@active} variant={:dock} />
 <.flash_group flash={@flash} id="admin-flash-group" />

@@ -37,11 +37,13 @@ defmodule LuxpkgsWeb.AdminLive.PackagesTest do
     hidden = package_fixture(scope, %{name: "listed_hidden"})
     hidden |> Ecto.Changeset.change(status: :hidden) |> Repo.update!()
 
-    {:ok, _lv, html} = live(admin_conn(conn, :moderator), ~p"/admin/packages")
+    {:ok, lv, html} = live(admin_conn(conn, :moderator), ~p"/admin/packages")
 
     assert html =~ active.name
     assert html =~ hidden.name
     assert html =~ "Hidden"
+    assert has_element?(lv, "nav.dock")
+    assert has_element?(lv, "a[aria-current='page'][href='/admin/packages']")
   end
 
   test "filters by status and owner search", %{conn: conn} do
@@ -71,14 +73,14 @@ defmodule LuxpkgsWeb.AdminLive.PackagesTest do
     {:ok, lv, _html} = live(admin_conn(conn, :moderator), ~p"/admin/packages")
 
     lv
-    |> element("button[phx-click='hide'][phx-value-id='#{package.id}']")
+    |> element("#package-row-#{package.id} button[phx-click='hide']")
     |> render_click()
 
     assert Repo.get!(Package, package.id).status == :hidden
     assert [%{action: "package.hidden"}] = Audit.list_events()
 
     lv
-    |> element("button[phx-click='unhide'][phx-value-id='#{package.id}']")
+    |> element("#package-row-#{package.id} button[phx-click='unhide']")
     |> render_click()
 
     assert Repo.get!(Package, package.id).status == :active
@@ -100,13 +102,13 @@ defmodule LuxpkgsWeb.AdminLive.PackagesTest do
     {:ok, lv, _html} = live(admin_conn(conn, :admin), ~p"/admin/packages")
 
     lv
-    |> element("button[phx-click='feature'][phx-value-id='#{package.id}']")
+    |> element("#package-row-#{package.id} button[phx-click='feature']")
     |> render_click()
 
     assert Repo.get!(Package, package.id).featured_at
 
     lv
-    |> element("button[phx-click='unfeature'][phx-value-id='#{package.id}']")
+    |> element("#package-row-#{package.id} button[phx-click='unfeature']")
     |> render_click()
 
     refute Repo.get!(Package, package.id).featured_at

@@ -148,18 +148,18 @@ defmodule LuxpkgsWeb.AdminLive.Package do
     end)
   end
 
-  defp token_class(:comment), do: "text-base-content/40 italic"
+  defp token_class(:comment), do: "text-base-content/70 italic"
   defp token_class(:string), do: "text-success"
   defp token_class(:number), do: "text-warning"
   defp token_class(:keyword), do: "text-primary"
   defp token_class(:operator), do: "text-accent"
   defp token_class(_type), do: nil
 
-  defp status_badge(:active), do: "badge badge-success badge-sm"
-  defp status_badge(:hidden), do: "badge badge-warning badge-sm"
+  defp status_badge(:active), do: "badge badge-success badge-sm md:badge-md"
+  defp status_badge(:hidden), do: "badge badge-warning badge-sm md:badge-md"
 
   defp format_date(nil), do: "-"
-  defp format_date(date), do: Calendar.strftime(date, "%Y-%m-%d %H:%M")
+  defp format_date(date), do: Calendar.strftime(date, "%Y-%m-%d - %H:%M %Z")
 
   defp selected_index(package, release) do
     Enum.find_index(package.releases, &(&1.id == release.id)) || 0
@@ -168,7 +168,12 @@ defmodule LuxpkgsWeb.AdminLive.Package do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.admin flash={@flash} current_scope={@current_scope} current_admin={@current_admin}>
+    <Layouts.admin
+      flash={@flash}
+      current_scope={@current_scope}
+      current_admin={@current_admin}
+      active={:packages}
+    >
       <%= if @not_found do %>
         <div class="rounded-box border border-base-300 bg-base-100 p-10 text-center">
           <h1 class="text-xl font-semibold">Package not found</h1>
@@ -188,7 +193,7 @@ defmodule LuxpkgsWeb.AdminLive.Package do
               <div class="flex flex-wrap items-center gap-3">
                 <h1 class="text-2xl font-bold">{@package.name}</h1>
                 <span class={status_badge(@package.status)}>{@package.status}</span>
-                <span :if={@package.featured_at} class="badge badge-primary badge-sm">
+                <span :if={@package.featured_at} class="badge badge-primary badge-sm md:badge-md">
                   Featured
                 </span>
               </div>
@@ -204,7 +209,7 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                 phx-value-action="hide"
                 class="btn btn-sm btn-warning"
               >
-                Hide
+                <.icon name={:eye_off} type={:outline} class="size-4" /> Hide
               </button>
               <button
                 :if={
@@ -215,7 +220,7 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                 phx-value-action="unhide"
                 class="btn btn-sm btn-success"
               >
-                Unhide
+                <.icon name={:eye} type={:outline} class="size-4" /> Unhide
               </button>
               <button
                 :if={
@@ -226,7 +231,7 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                 phx-value-action="feature"
                 class="btn btn-sm btn-primary"
               >
-                Feature
+                <.icon name={:star} type={:outline} class="size-4" /> Feature
               </button>
               <button
                 :if={@package.featured_at && Permissions.can?(@current_admin, :feature_package)}
@@ -234,17 +239,17 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                 phx-value-action="unfeature"
                 class="btn btn-sm btn-ghost"
               >
-                Unfeature
+                <.icon name={:star_off} type={:outline} class="size-4" /> Unfeature
               </button>
             </div>
           </div>
 
           <div class="grid gap-6 lg:grid-cols-2">
-            <section class="rounded-box border border-base-300 bg-base-100">
+            <section class="order-2 rounded-box border border-base-300 bg-base-100 lg:order-1">
               <header class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-4">
                 <div class="flex items-center gap-2">
                   <h2 class="font-semibold">Source</h2>
-                  <span :if={match?({:ok, _}, @source)} class="badge badge-ghost badge-sm">
+                  <span :if={match?({:ok, _}, @source)} class="badge badge-ghost badge-sm md:badge-md">
                     {kind_label(elem(@source, 1).kind)}
                   </span>
                 </div>
@@ -255,15 +260,15 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                     phx-value-direction="prev"
                     disabled={selected_index(@package, @selected_release) == 0}
                     aria-label="Older release"
-                    class="btn btn-xs"
+                    class="btn btn-sm"
                   >
-                    ←
+                    <.icon name={:chevron_left} type={:outline} class="size-4" />
                   </button>
                   <form phx-change="select_release" id="release-select">
                     <select
                       name="release"
                       aria-label="Release"
-                      class="select select-bordered select-xs bg-base-100"
+                      class="select select-bordered select-sm bg-base-100"
                     >
                       <option
                         :for={release <- Enum.reverse(@package.releases)}
@@ -281,19 +286,19 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                       selected_index(@package, @selected_release) == length(@package.releases) - 1
                     }
                     aria-label="Newer release"
-                    class="btn btn-xs"
+                    class="btn btn-sm"
                   >
-                    →
+                    <.icon name={:chevron_right} type={:outline} class="size-4" />
                   </button>
                 </div>
               </header>
 
               <%= case @source do %>
                 <% {:ok, source} -> %>
-                  <div class="border-b border-base-300 px-4 py-2 text-xs text-base-content/60">
+                  <div class="border-b border-base-300 px-4 py-2 text-xs text-base-content/70">
                     {source.filename}
                   </div>
-                  <div class="max-h-[70vh] overflow-auto bg-base-200/40 p-4 font-mono text-xs leading-5">
+                  <div class="max-h-[50vh] overflow-auto bg-base-200/40 p-4 font-mono text-xs leading-5 lg:max-h-[70vh]">
                     <code class="source-code block whitespace-pre" phx-no-format>{render_source_lines(@source_lines)}</code>
                   </div>
                 <% {:error, reason} -> %>
@@ -301,23 +306,23 @@ defmodule LuxpkgsWeb.AdminLive.Package do
               <% end %>
             </section>
 
-            <section class="space-y-6">
+            <section class="order-1 space-y-6 lg:order-2">
               <div class="rounded-box border border-base-300 bg-base-100 p-4">
                 <h2 class="font-semibold">Package</h2>
-                <dl class="mt-4 grid grid-cols-[8rem_1fr] gap-y-3 text-sm">
-                  <dt class="text-base-content/60">Owner</dt>
+                <dl class="mt-4 grid grid-cols-1 gap-y-2 text-sm sm:grid-cols-[8rem_1fr] sm:gap-y-3">
+                  <dt class="text-base-content/70">Owner</dt>
                   <dd>{@package.user.username}</dd>
-                  <dt class="text-base-content/60">Status</dt>
+                  <dt class="text-base-content/70">Status</dt>
                   <dd>{@package.status}</dd>
-                  <dt class="text-base-content/60">Releases</dt>
+                  <dt class="text-base-content/70">Releases</dt>
                   <dd>{length(@package.releases)}</dd>
-                  <dt class="text-base-content/60">Downloads</dt>
+                  <dt class="text-base-content/70">Downloads</dt>
                   <dd>
                     {format_count(Enum.sum(for r <- @package.releases, do: r.download_count))}
                   </dd>
-                  <dt class="text-base-content/60">Updated</dt>
+                  <dt class="text-base-content/70">Updated</dt>
                   <dd>{format_date(@package.updated_at)}</dd>
-                  <dt :if={@selected_release} class="text-base-content/60">Selected</dt>
+                  <dt :if={@selected_release} class="text-base-content/70">Selected</dt>
                   <dd :if={@selected_release}>
                     v{to_string(@selected_release.version)}
                     <span :if={@selected_release.yanked_at} class="badge badge-warning badge-xs ml-2">

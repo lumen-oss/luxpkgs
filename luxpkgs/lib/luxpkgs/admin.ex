@@ -49,6 +49,13 @@ defmodule Luxpkgs.Admin do
     )
   end
 
+  @doc """
+  Returns the number of active admin and moderator records.
+  """
+  def active_count do
+    Repo.one(from admin in Admin, where: admin.active == true, select: count(admin.id))
+  end
+
   def get_active_admin_for_user(%User{id: user_id}), do: get_active_admin_for_user(user_id)
 
   def get_active_admin_for_user(user_id) when is_integer(user_id) and user_id > 0 do

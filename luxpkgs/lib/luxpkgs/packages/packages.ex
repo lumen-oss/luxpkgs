@@ -118,6 +118,34 @@ defmodule Luxpkgs.Packages do
     }
   end
 
+  @doc """
+  Returns aggregate counters for the admin dashboard.
+  """
+  def admin_stats do
+    package_stats =
+      Repo.one(
+        from p in Package,
+          select: %{
+            packages: count(p.id),
+            active_packages: filter(count(p.id), p.status == :active),
+            hidden_packages: filter(count(p.id), p.status == :hidden),
+            featured_packages: filter(count(p.id), not is_nil(p.featured_at))
+          }
+      )
+
+    release_stats =
+      Repo.one(
+        from r in Luxpkgs.Packages.Release,
+          select: %{
+            releases: count(r.id),
+            yanked_releases: filter(count(r.id), not is_nil(r.yanked_at)),
+            downloads: coalesce(sum(r.download_count), 0)
+          }
+      )
+
+    Map.merge(package_stats, release_stats)
+  end
+
   defp filter_admin_search(query, ""), do: query
 
   defp filter_admin_search(query, search) do

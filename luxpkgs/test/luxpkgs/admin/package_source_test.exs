@@ -8,7 +8,12 @@ defmodule Luxpkgs.Admin.PackageSourceTest do
     root = Application.get_env(:luxpkgs, :rockspec_storage)
     File.rm_rf!(root)
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+      File.mkdir_p!(root)
+    end)
+
     %{root: root}
   end
 

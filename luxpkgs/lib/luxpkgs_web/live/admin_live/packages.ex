@@ -90,35 +90,103 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
     "/admin/packages?" <> URI.encode_query(Map.put(params, "page", page))
   end
 
-  defp status_badge(:active), do: "badge badge-success badge-sm"
-  defp status_badge(:hidden), do: "badge badge-warning badge-sm"
+  defp status_badge(:active), do: "badge badge-success badge-sm md:badge-md"
+  defp status_badge(:hidden), do: "badge badge-warning badge-sm md:badge-md"
 
   defp format_date(nil), do: "-"
 
   defp format_date(date) do
-    Calendar.strftime(date, "%Y-%m-%d")
+    Calendar.strftime(date, "%Y-%m-%d - %H:%M %Z")
+  end
+
+  defp downloads(package) do
+    Enum.sum(for release <- package.releases, do: release.download_count)
+  end
+
+  defp filtered?(filters) do
+    filters.search != "" or filters.status != "all" or filters.featured != "all"
+  end
+
+  attr :package, :map, required: true
+  attr :current_admin, :map, required: true
+
+  defp package_actions(assigns) do
+    ~H"""
+    <div class="max-md:w-full flex max-md:flex-wrap justify-between gap-2">
+      <button
+        :if={
+          @package.status == :active and
+            Permissions.can?(@current_admin, :hide_package)
+        }
+        phx-click="hide"
+        phx-value-id={@package.id}
+        aria-label={"Hide #{@package.name}"}
+        class="btn btn-warning btn-sm max-md:btn-block"
+      >
+        <.icon name={:eye_off} type={:outline} class="size-4" /> Hide
+      </button>
+      <button
+        :if={
+          @package.status == :hidden and
+            Permissions.can?(@current_admin, :unhide_package)
+        }
+        phx-click="unhide"
+        phx-value-id={@package.id}
+        aria-label={"Unhide #{@package.name}"}
+        class="btn btn-success btn-sm max-md:btn-block"
+      >
+        <.icon name={:eye} type={:outline} class="size-4" /> Unhide
+      </button>
+      <button
+        :if={
+          is_nil(@package.featured_at) and
+            Permissions.can?(@current_admin, :feature_package)
+        }
+        phx-click="feature"
+        phx-value-id={@package.id}
+        aria-label={"Feature #{@package.name}"}
+        class="btn btn-primary btn-sm max-md:btn-block"
+      >
+        <.icon name={:star} type={:outline} class="size-4" /> Feature
+      </button>
+      <button
+        :if={@package.featured_at && Permissions.can?(@current_admin, :feature_package)}
+        phx-click="unfeature"
+        phx-value-id={@package.id}
+        aria-label={"Unfeature #{@package.name}"}
+        class="btn btn-ghost btn-sm max-md:btn-block"
+      >
+        <.icon name={:star_off} type={:outline} class="size-4" /> Unfeature
+      </button>
+    </div>
+    """
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.admin flash={@flash} current_scope={@current_scope} current_admin={@current_admin}>
+    <Layouts.admin
+      flash={@flash}
+      current_scope={@current_scope}
+      current_admin={@current_admin}
+      active={:packages}
+    >
       <div class="space-y-6">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 class="text-2xl font-bold">Packages</h1>
-            <p class="text-sm text-base-content/70">
+            <p class="text-base-content/70">
               Review and moderate published packages.
             </p>
           </div>
-          <div class="text-sm text-base-content/70">{@total_count} packages</div>
+          <div class="text-base-content/70">{@total_count} packages</div>
         </div>
 
         <.form
           for={%{}}
           id="admin-packages-filters"
           phx-change="filter"
-          class="grid gap-3 sm:grid-cols-[1fr_10rem_10rem]"
+          class="grid gap-3 md:grid-cols-[1fr_10rem_10rem_auto]"
         >
           <input
             type="search"
@@ -146,10 +214,74 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
             <option value="true" selected={@filters.featured == "true"}>Featured</option>
             <option value="false" selected={@filters.featured == "false"}>Not featured</option>
           </select>
+          <.link :if={filtered?(@filters)} patch={~p"/admin/packages"} class="btn btn-ghost">
+            <.icon name={:x} type={:outline} class="size-4" /> Clear
+          </.link>
         </.form>
 
-        <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100">
-          <table class="table">
+        <p
+          :if={@packages == []}
+          class="rounded-box border border-base-300 bg-base-100 p-8 text-center text-sm text-base-content/70"
+        >
+          No packages match these filters.
+        </p>
+
+        <div :if={@packages != []} class="space-y-3 md:hidden">
+          <article
+            :for={package <- @packages}
+            id={"package-card-#{package.id}"}
+            class="rounded-box border border-base-300 bg-base-100 p-4"
+          >
+            <div class="flex flex-col justify-between gap-2">
+              <div class="flex items-center justify-between">
+                <.link
+                  navigate={~p"/admin/packages/#{package.id}"}
+                  class="font-semibold link link-hover"
+                >
+                  {package.name}
+                </.link>
+                <div class="flex justify-end gap-2">
+                  <span :if={package.featured_at} class="badge badge-primary badge-sm">
+                    Featured
+                  </span>
+                  <span class={status_badge(package.status)}>{package.status}</span>
+                </div>
+              </div>
+              <p class="mt-1 line-clamp-2 text-sm text-base-content/70">
+                {package.summary}
+              </p>
+            </div>
+
+            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt class="font-semibold text-sm">Owner</dt>
+                <dd class="truncate">{package.user.username}</dd>
+              </div>
+              <div>
+                <dt class="font-semibold text-sm">Releases</dt>
+                <dd>{length(package.releases)}</dd>
+              </div>
+              <div>
+                <dt class="font-semibold text-sm">Downloads</dt>
+                <dd>{format_count(downloads(package))}</dd>
+              </div>
+              <div>
+                <dt class="font-semibold text-sm">Updated</dt>
+                <dd>{format_date(package.updated_at)}</dd>
+              </div>
+            </dl>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <.package_actions package={package} current_admin={@current_admin} />
+            </div>
+          </article>
+        </div>
+
+        <div
+          :if={@packages != []}
+          class="hidden overflow-x-auto rounded-box border border-base-300 bg-base-100 md:block"
+        >
+          <table class="table table-pin-cols table-pin-rows">
             <thead>
               <tr>
                 <th>Package</th>
@@ -163,7 +295,7 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
               </tr>
             </thead>
             <tbody>
-              <tr :for={package <- @packages}>
+              <tr :for={package <- @packages} id={"package-row-#{package.id}"}>
                 <td>
                   <.link
                     navigate={~p"/admin/packages/#{package.id}"}
@@ -171,7 +303,7 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
                   >
                     {package.name}
                   </.link>
-                  <div class="max-w-xs truncate text-xs text-base-content/60">
+                  <div class="max-w-xs truncate text-xs text-base-content/70">
                     {package.summary}
                   </div>
                 </td>
@@ -180,69 +312,23 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
                   <span class={status_badge(package.status)}>{package.status}</span>
                 </td>
                 <td>
-                  <span :if={package.featured_at} class="badge badge-primary badge-sm">
+                  <span :if={package.featured_at} class="badge badge-primary">
                     Featured
                   </span>
                   <span :if={is_nil(package.featured_at)}>-</span>
                 </td>
                 <td>{length(package.releases)}</td>
-                <td>{format_count(Enum.sum(for r <- package.releases, do: r.download_count))}</td>
+                <td>{format_count(downloads(package))}</td>
                 <td>{format_date(package.updated_at)}</td>
                 <td class="whitespace-nowrap text-right">
-                  <div class="flex justify-end gap-2">
-                    <button
-                      :if={
-                        package.status == :active and
-                          Permissions.can?(@current_admin, :hide_package)
-                      }
-                      phx-click="hide"
-                      phx-value-id={package.id}
-                      class="btn btn-xs btn-warning"
-                    >
-                      Hide
-                    </button>
-                    <button
-                      :if={
-                        package.status == :hidden and
-                          Permissions.can?(@current_admin, :unhide_package)
-                      }
-                      phx-click="unhide"
-                      phx-value-id={package.id}
-                      class="btn btn-xs btn-success"
-                    >
-                      Unhide
-                    </button>
-                    <button
-                      :if={
-                        is_nil(package.featured_at) and
-                          Permissions.can?(@current_admin, :feature_package)
-                      }
-                      phx-click="feature"
-                      phx-value-id={package.id}
-                      class="btn btn-xs btn-primary"
-                    >
-                      Feature
-                    </button>
-                    <button
-                      :if={package.featured_at && Permissions.can?(@current_admin, :feature_package)}
-                      phx-click="unfeature"
-                      phx-value-id={package.id}
-                      class="btn btn-xs btn-ghost"
-                    >
-                      Unfeature
-                    </button>
-                  </div>
+                  <.package_actions package={package} current_admin={@current_admin} />
                 </td>
               </tr>
             </tbody>
           </table>
-
-          <div :if={@packages == []} class="p-10 text-center text-base-content/70">
-            No packages match these filters.
-          </div>
         </div>
 
-        <div class="flex items-center justify-between">
+        <div :if={@total_pages > 1} class="flex flex-wrap items-center justify-between gap-3">
           <span class="text-sm text-base-content/70">
             Page {@page} of {@total_pages}
           </span>
@@ -252,15 +338,21 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
               patch={page_path(@params, @page - 1)}
               class="btn btn-sm join-item"
             >
-              Previous
+              <.icon name={:chevron_left} type={:outline} class="size-4" /> Previous
             </.link>
+            <span :if={@page == 1} class="btn btn-sm join-item btn-disabled">
+              <.icon name={:chevron_left} type={:outline} class="size-4" /> Previous
+            </span>
             <.link
               :if={@page < @total_pages}
               patch={page_path(@params, @page + 1)}
               class="btn btn-sm join-item"
             >
-              Next
+              Next <.icon name={:chevron_right} type={:outline} class="size-4" />
             </.link>
+            <span :if={@page >= @total_pages} class="btn btn-sm join-item btn-disabled">
+              Next <.icon name={:chevron_right} type={:outline} class="size-4" />
+            </span>
           </div>
         </div>
       </div>

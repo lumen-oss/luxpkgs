@@ -46,10 +46,30 @@ defmodule LuxpkgsWeb.AdminLive.DashboardTest do
       |> log_in_user(user)
       |> put_session(:admin_totp_verified_at, System.os_time(:second))
 
-    assert {:ok, _view, html} = live(conn, ~p"/admin")
-    assert html =~ "Admin dashboard"
+    assert {:ok, view, html} = live(conn, ~p"/admin")
+    assert html =~ "Dashboard"
     assert html =~ user.username
     assert html =~ "admin"
+    assert html =~ "Packages"
+    assert html =~ "Recent activity"
+    assert has_element?(view, "nav.dock")
+    assert has_element?(view, "a[aria-current='page'][href='/admin']")
+  end
+
+  test "moderators do not see recent admin activity", %{conn: conn} do
+    user = user_fixture()
+    admin_fixture(%{user: user, role: :moderator})
+
+    conn =
+      conn
+      |> log_in_user(user)
+      |> put_session(:admin_totp_verified_at, System.os_time(:second))
+
+    {:ok, _view, html} = live(conn, ~p"/admin")
+
+    refute html =~ "Recent activity"
+    refute html =~ "Quick actions"
+    assert html =~ "Packages"
   end
 
   test "redirects revoked admins", %{conn: conn} do
