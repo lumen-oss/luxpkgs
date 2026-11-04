@@ -165,7 +165,12 @@ defmodule LuxpkgsWeb.AdminLive.Packages do
             <tbody>
               <tr :for={package <- @packages}>
                 <td>
-                  <div class="font-semibold">{package.name}</div>
+                  <.link
+                    navigate={~p"/admin/packages/#{package.id}"}
+                    class="font-semibold link link-hover"
+                  >
+                    {package.name}
+                  </.link>
                   <div class="max-w-xs truncate text-xs text-base-content/60">
                     {package.summary}
                   </div>

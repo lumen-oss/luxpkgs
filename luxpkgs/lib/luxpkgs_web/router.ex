@@ -74,6 +74,7 @@ defmodule LuxpkgsWeb.Router do
       ] do
       live "/", AdminLive.Dashboard, :index
       live "/packages", AdminLive.Packages, :index
+      live "/packages/:id", AdminLive.Package, :show
     end
   end
 
