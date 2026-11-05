@@ -305,6 +305,62 @@ defmodule Luxpkgs.PackagesTest do
       assert active.status == :active
     end
 
+    test "remove_package/3 removes active and hidden packages" do
+      scope = user_scope_fixture()
+      active = package_fixture(scope)
+      hidden = package_fixture(scope) |> set_status!(:hidden)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:ok, %{status: :removed}} = Packages.remove_package(admin, active)
+      assert {:ok, %{status: :removed}} = Packages.remove_package(admin, hidden)
+
+      actions = Enum.map(Luxpkgs.Audit.list_events(), & &1.action)
+      assert Enum.count(actions, &(&1 == "package.removed")) == 2
+    end
+
+    test "remove_package/3 clears the search cache and restore makes the package visible again" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+
+      assert Packages.list_packages(:exact, package.name, []).packages != []
+
+      assert {:ok, removed} = Packages.remove_package(admin, package)
+      assert Packages.list_packages(:exact, package.name, []).packages == []
+
+      assert {:ok, restored} = Packages.restore_package(admin, removed)
+      assert restored.status == :active
+      assert Packages.list_packages(:exact, package.name, []).packages != []
+    end
+
+    test "a removed package can be hidden again" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:removed)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:ok, hidden} = Packages.hide_package(admin, package)
+      assert hidden.status == :hidden
+    end
+
+    test "restore_package/2 rejects packages that are not removed" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:error, :invalid_transition} = Packages.restore_package(admin, package)
+    end
+
+    test "moderators cannot remove or restore packages" do
+      scope = user_scope_fixture()
+      active = package_fixture(scope)
+      removed = package_fixture(scope) |> set_status!(:removed)
+      moderator = admin_fixture(%{role: :moderator})
+
+      assert {:error, :insufficient_permissions} = Packages.remove_package(moderator, active)
+      assert {:error, :insufficient_permissions} = Packages.remove_package(moderator, removed)
+      assert {:error, :insufficient_permissions} = Packages.restore_package(moderator, removed)
+    end
+
     test "moderators cannot feature packages" do
       scope = user_scope_fixture()
       package = package_fixture(scope)
@@ -329,6 +385,7 @@ defmodule Luxpkgs.PackagesTest do
       scope = user_scope_fixture()
       active = package_fixture(scope, %{name: "admin_active"})
       hidden = package_fixture(scope, %{name: "admin_hidden"}) |> set_status!(:hidden)
+      removed = package_fixture(scope, %{name: "admin_removed"}) |> set_status!(:removed)
       admin = admin_fixture(%{role: :admin})
       {:ok, featured} = Packages.feature_package(admin, active)
 
@@ -337,10 +394,13 @@ defmodule Luxpkgs.PackagesTest do
         |> Enum.map(& &1.id)
         |> Enum.sort()
 
-      assert ids == Enum.sort([active.id, hidden.id])
+      assert ids == Enum.sort([active.id, hidden.id, removed.id])
 
       assert [%{id: id}] = Packages.list_packages_admin(status: "hidden").packages
       assert id == hidden.id
+
+      assert [%{id: removed_id}] = Packages.list_packages_admin(status: "removed").packages
+      assert removed_id == removed.id
 
       assert [%{id: id}] = Packages.list_packages_admin(featured: "true").packages
       assert id == featured.id

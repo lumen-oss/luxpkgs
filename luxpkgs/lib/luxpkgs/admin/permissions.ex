@@ -16,6 +16,8 @@ defmodule Luxpkgs.Admin.Permissions do
   @admin_permissions @moderator_permissions ++
                        [
                          :feature_package,
+                         :remove_package,
+                         :restore_package,
                          :view_users,
                          :suspend_user,
                          :unsuspend_user,

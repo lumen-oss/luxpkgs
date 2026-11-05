@@ -160,6 +160,7 @@ defmodule Luxpkgs.Packages do
 
   defp filter_admin_status(query, "active"), do: where(query, [p], p.status == :active)
   defp filter_admin_status(query, "hidden"), do: where(query, [p], p.status == :hidden)
+  defp filter_admin_status(query, "removed"), do: where(query, [p], p.status == :removed)
   defp filter_admin_status(query, _status), do: query
 
   defp filter_admin_featured(query, "true"), do: where(query, [p], not is_nil(p.featured_at))
@@ -381,6 +382,22 @@ defmodule Luxpkgs.Packages do
   def unhide_package(%Admin{} = admin, %Package{} = package) do
     set_package_status(admin, package, :active, "package.unhidden", :unhide_package, %{})
   end
+
+  @doc """
+  Removes an active or hidden package from public view.
+  """
+  def remove_package(%Admin{} = admin, %Package{} = package, attrs \\ %{}) do
+    set_package_status(admin, package, :removed, "package.removed", :remove_package, attrs)
+  end
+
+  @doc """
+  Restores a removed package to public view.
+  """
+  def restore_package(%Admin{} = admin, %Package{status: :removed} = package) do
+    set_package_status(admin, package, :active, "package.restored", :restore_package, %{})
+  end
+
+  def restore_package(_admin, %Package{}), do: {:error, :invalid_transition}
 
   @doc """
   Marks a package as featured.

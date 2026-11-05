@@ -7,6 +7,7 @@ defmodule LuxpkgsWeb.AdminLive.Package do
   alias LuxpkgsWeb.Admin.SourceHighlighter
   alias Luxpkgs.Packages.Package, as: PackageSchema
   alias Luxpkgs.Repo
+  alias LuxpkgsWeb.AdminAuth
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -60,26 +61,35 @@ defmodule LuxpkgsWeb.AdminLive.Package do
   end
 
   def handle_event("moderate", %{"action" => action}, socket)
-      when action in ["hide", "unhide", "feature", "unfeature"] do
-    package = Packages.get_package_by_id(socket.assigns.package.id)
+      when action in ["hide", "unhide", "remove", "restore", "feature", "unfeature"] do
+    if action == "remove" and not AdminAuth.destructive_fresh?(socket) do
+      {:noreply,
+       socket
+       |> put_flash(:error, "Verify your second factor before removing a package.")
+       |> redirect(to: ~p"/admin/verify")}
+    else
+      package = Packages.get_package_by_id(socket.assigns.package.id)
 
-    case moderate(action, socket.assigns.current_admin, package) do
-      {:ok, _package} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Package updated.")
-         |> reload_package()}
+      case moderate(action, socket.assigns.current_admin, package) do
+        {:ok, _package} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Package updated.")
+           |> reload_package()}
 
-      {:error, :insufficient_permissions} ->
-        {:noreply, put_flash(socket, :error, "You do not have permission to do that.")}
+        {:error, :insufficient_permissions} ->
+          {:noreply, put_flash(socket, :error, "You do not have permission to do that.")}
 
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Could not update the package.")}
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Could not update the package.")}
+      end
     end
   end
 
   defp moderate("hide", admin, package), do: Packages.hide_package(admin, package)
   defp moderate("unhide", admin, package), do: Packages.unhide_package(admin, package)
+  defp moderate("remove", admin, package), do: Packages.remove_package(admin, package)
+  defp moderate("restore", admin, package), do: Packages.restore_package(admin, package)
   defp moderate("feature", admin, package), do: Packages.feature_package(admin, package)
   defp moderate("unfeature", admin, package), do: Packages.unfeature_package(admin, package)
 
@@ -157,6 +167,7 @@ defmodule LuxpkgsWeb.AdminLive.Package do
 
   defp status_badge(:active), do: "badge badge-success badge-sm md:badge-md"
   defp status_badge(:hidden), do: "badge badge-warning badge-sm md:badge-md"
+  defp status_badge(:removed), do: "badge badge-error badge-sm md:badge-md"
 
   defp format_date(nil), do: "-"
   defp format_date(date), do: Calendar.strftime(date, "%Y-%m-%d - %H:%M %Z")
@@ -204,7 +215,10 @@ defmodule LuxpkgsWeb.AdminLive.Package do
 
             <div class="flex flex-wrap gap-2">
               <button
-                :if={@package.status == :active and Permissions.can?(@current_admin, :hide_package)}
+                :if={
+                  @package.status in [:active, :removed] and
+                    Permissions.can?(@current_admin, :hide_package)
+                }
                 phx-click="moderate"
                 phx-value-action="hide"
                 class="btn btn-sm btn-warning"
@@ -224,7 +238,30 @@ defmodule LuxpkgsWeb.AdminLive.Package do
               </button>
               <button
                 :if={
-                  is_nil(@package.featured_at) and
+                  @package.status in [:active, :hidden] and
+                    Permissions.can?(@current_admin, :remove_package)
+                }
+                phx-click="moderate"
+                phx-value-action="remove"
+                class="btn btn-sm btn-error"
+              >
+                <.icon name={:trash} type={:outline} class="size-4" /> Remove
+              </button>
+              <button
+                :if={
+                  @package.status == :removed and
+                    Permissions.can?(@current_admin, :restore_package)
+                }
+                phx-click="moderate"
+                phx-value-action="restore"
+                class="btn btn-sm btn-success"
+              >
+                <.icon name={:restore} type={:outline} class="size-4" /> Restore
+              </button>
+              <button
+                :if={
+                  @package.status != :removed and
+                    is_nil(@package.featured_at) and
                     Permissions.can?(@current_admin, :feature_package)
                 }
                 phx-click="moderate"

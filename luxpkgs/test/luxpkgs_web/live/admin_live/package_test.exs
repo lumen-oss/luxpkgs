@@ -9,13 +9,13 @@ defmodule LuxpkgsWeb.AdminLive.PackageTest do
   alias Luxpkgs.Packages.Package
   alias Luxpkgs.Repo
 
-  defp admin_conn(conn, role) do
+  defp admin_conn(conn, role, verified_at \\ System.os_time(:second)) do
     user = user_fixture()
     admin_fixture(%{user: user, role: role})
 
     conn
     |> log_in_user(user)
-    |> put_session(:admin_totp_verified_at, System.os_time(:second))
+    |> put_session(:admin_totp_verified_at, verified_at)
   end
 
   test "redirects non-admins", %{conn: conn} do
@@ -132,6 +132,56 @@ defmodule LuxpkgsWeb.AdminLive.PackageTest do
     lv
     |> element("button[phx-value-action='unhide']")
     |> render_click()
+
+    assert Repo.get!(Package, package.id).status == :active
+  end
+
+  test "admins can remove and restore packages from the detail view", %{conn: conn} do
+    owner = user_fixture()
+    package = package_fixture(user_scope_fixture(owner), %{name: "remove_view"})
+
+    {:ok, lv, _html} = live(admin_conn(conn, :admin), ~p"/admin/packages/#{package.id}")
+
+    lv
+    |> element("button[phx-value-action='remove']")
+    |> render_click()
+
+    assert Repo.get!(Package, package.id).status == :removed
+    assert has_element?(lv, "button[phx-value-action='restore']")
+
+    lv
+    |> element("button[phx-value-action='restore']")
+    |> render_click()
+
+    assert Repo.get!(Package, package.id).status == :active
+  end
+
+  test "moderators do not see remove or restore actions in the detail view", %{conn: conn} do
+    owner = user_fixture()
+    package = package_fixture(user_scope_fixture(owner), %{name: "mod_remove_view"})
+    removed = package_fixture(user_scope_fixture(owner), %{name: "mod_restore_view"})
+    removed |> Ecto.Changeset.change(status: :removed) |> Repo.update!()
+
+    {:ok, _lv, html} = live(admin_conn(conn, :moderator), ~p"/admin/packages/#{package.id}")
+
+    refute html =~ ~s(phx-value-action="remove")
+
+    {:ok, _lv, html} = live(admin_conn(conn, :moderator), ~p"/admin/packages/#{removed.id}")
+
+    refute html =~ ~s(phx-value-action="restore")
+  end
+
+  test "removing from the detail view requires recent TOTP verification", %{conn: conn} do
+    owner = user_fixture()
+    package = package_fixture(user_scope_fixture(owner), %{name: "fresh_remove_view"})
+    conn = admin_conn(conn, :admin, System.os_time(:second) - 601)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/packages/#{package.id}")
+
+    assert {:error, {:redirect, %{to: "/admin/verify"}}} =
+             lv
+             |> element("button[phx-value-action='remove']")
+             |> render_click()
 
     assert Repo.get!(Package, package.id).status == :active
   end

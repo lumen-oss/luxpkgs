@@ -115,6 +115,22 @@ defmodule LuxpkgsWeb.UserLive.ProfileTest do
       assert html =~ "Hidden"
     end
 
+    test "owners see their removed packages with a badge", %{conn: conn} do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      package = package_fixture(scope, %{name: "owned_removed"})
+      package |> Ecto.Changeset.change(status: :removed) |> Luxpkgs.Repo.update!()
+
+      {:ok, _lv, html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/users/#{user.username}")
+
+      assert html =~ package.name
+      assert html =~ "Removed"
+      assert html =~ "badge badge-error badge-sm"
+    end
+
     test "hidden packages stay private on other users' profiles", %{conn: conn} do
       user = user_fixture()
       scope = user_scope_fixture(user)

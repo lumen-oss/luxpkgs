@@ -21,6 +21,7 @@ defmodule LuxpkgsWeb.PackageBox do
                 {@name}
               </h2>
               <span :if={@status == :hidden} class="badge badge-warning badge-sm">Hidden</span>
+              <span :if={@status == :removed} class="badge badge-error badge-sm">Removed</span>
             </div>
             <div class="bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-xs font-mono">
               {if @version, do: "v#{@version}", else: "—"}
