@@ -31,6 +31,7 @@ defmodule LuxpkgsWeb.AdminNav do
     [
       %{key: :dashboard, label: "Dashboard", path: "/admin", icon: :shield_check},
       %{key: :packages, label: "Packages", path: "/admin/packages", icon: :package},
+      %{key: :reports, label: "Reports", path: "/admin/reports", icon: :alert_triangle},
       %{key: :site, label: "Site", path: "/", icon: :arrow_left}
     ]
   end

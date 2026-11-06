@@ -6,7 +6,8 @@ defmodule LuxpkgsWeb.RateLimit do
       general: {120, 60_000},
       search: {100, 3_600_000},
       write: {10, 3_600_000},
-      totp: {5, 300_000}
+      totp: {5, 300_000},
+      report: {5, 86_400_000}
     }
 
   def hit(tier, key) do
