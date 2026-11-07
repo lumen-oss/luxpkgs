@@ -52,7 +52,7 @@
         </.link>
       </div>
 
-      <LuxpkgsWeb.AdminNav.nav active={@active} variant={:sidebar} />
+      <LuxpkgsWeb.AdminNav.nav active={@active} variant={:sidebar} current_admin={@current_admin} />
 
       <div class="space-y-3 border-t border-base-300 p-4">
         <div class="flex items-center gap-3">
@@ -88,5 +88,5 @@
   </div>
 </div>
 
-<LuxpkgsWeb.AdminNav.nav active={@active} variant={:dock} />
+<LuxpkgsWeb.AdminNav.nav active={@active} variant={:dock} current_admin={@current_admin} />
 <.flash_group flash={@flash} id="admin-flash-group" />

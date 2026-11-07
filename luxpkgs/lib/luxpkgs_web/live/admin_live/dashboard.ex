@@ -5,6 +5,7 @@ defmodule LuxpkgsWeb.AdminLive.Dashboard do
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Permissions
   alias Luxpkgs.Audit
+  alias Luxpkgs.Audit.Catalog
   alias Luxpkgs.Packages
 
   @impl true
@@ -94,7 +95,7 @@ defmodule LuxpkgsWeb.AdminLive.Dashboard do
               <li :for={event <- @recent_events} class="flex gap-3 p-4">
                 <div class="min-w-0">
                   <span class="max-md:text-sm font-medium">{event.actor_label || "System"}</span>
-                  <span class="max-md:text-sm font-bold">{action_label(event.action)}</span>
+                  <span class="max-md:text-sm font-bold">{Catalog.label(event.action)}</span>
                   <span class="max-md:text-sm text-base-content/70">{event.target_label}</span>
                   <p class="mt-1 text-xs md:text-sm text-base-content/70">
                     {format_datetime(event.inserted_at)}
@@ -132,14 +133,6 @@ defmodule LuxpkgsWeb.AdminLive.Dashboard do
     </div>
     """
   end
-
-  defp action_label("package.hidden"), do: "hid"
-  defp action_label("package.unhidden"), do: "unhid"
-  defp action_label("package.featured"), do: "featured"
-  defp action_label("package.unfeatured"), do: "unfeatured"
-  defp action_label("release.yanked"), do: "yanked"
-  defp action_label("release.unyanked"), do: "unyanked"
-  defp action_label(action), do: action
 
   defp format_datetime(nil), do: "-"
   defp format_datetime(datetime), do: Calendar.strftime(datetime, "%H:%M %Z, %a, %B %d, %Y")

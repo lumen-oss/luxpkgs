@@ -8,14 +8,17 @@ defmodule LuxpkgsWeb.AdminNav do
 
   use LuxpkgsWeb, :html
 
+  alias Luxpkgs.Admin.Permissions
+
   attr :active, :atom, required: true
   attr :variant, :atom, values: [:sidebar, :dock], required: true
+  attr :current_admin, :map, default: nil
 
   def nav(assigns) do
     ~H"""
     <nav class={nav_class(@variant)} aria-label="Admin">
       <.link
-        :for={item <- items()}
+        :for={item <- items(@current_admin)}
         navigate={item.path}
         class={item_class(@variant, item.key, @active)}
         aria-current={if(item.key == @active, do: "page", else: nil)}
@@ -27,13 +30,42 @@ defmodule LuxpkgsWeb.AdminNav do
     """
   end
 
-  defp items do
+  defp items(current_admin) do
     [
-      %{key: :dashboard, label: "Dashboard", path: "/admin", icon: :shield_check},
-      %{key: :packages, label: "Packages", path: "/admin/packages", icon: :package},
-      %{key: :reports, label: "Reports", path: "/admin/reports", icon: :alert_triangle},
-      %{key: :site, label: "Site", path: "/", icon: :arrow_left}
+      %{
+        key: :dashboard,
+        label: "Dashboard",
+        path: "/admin",
+        icon: :shield_check,
+        permission: :view_dashboard
+      },
+      %{
+        key: :packages,
+        label: "Packages",
+        path: "/admin/packages",
+        icon: :package,
+        permission: :view_packages
+      },
+      %{
+        key: :reports,
+        label: "Reports",
+        path: "/admin/reports",
+        icon: :alert_triangle,
+        permission: :view_reports
+      },
+      %{
+        key: :audit,
+        label: "Audit",
+        path: "/admin/audit",
+        icon: :file_text,
+        permission: :view_audit
+      },
+      %{key: :site, label: "Site", path: "/", icon: :arrow_left, permission: nil}
     ]
+    |> Enum.filter(fn
+      %{permission: nil} -> true
+      %{permission: permission} -> Permissions.can?(current_admin, permission)
+    end)
   end
 
   defp nav_class(:sidebar), do: "menu w-full flex-1 gap-1 p-4"
