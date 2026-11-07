@@ -26,6 +26,10 @@
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
+        <LuxpkgsWeb.Layouts.theme_toggle
+          id="admin-theme-header"
+          dropdown_class="dropdown-end"
+        />
         <span class="badge badge-outline uppercase">{@current_admin.role}</span>
         <.link href={~p"/logout"} method="delete" class="btn btn-ghost btn-sm">
           Log out
@@ -45,11 +49,18 @@
   <div class="drawer-side z-40 hidden md:grid">
     <label for="admin-drawer" aria-label="Close admin navigation" class="drawer-overlay"></label>
     <aside class="flex h-full w-64 flex-col border-r border-base-300 bg-base-300">
-      <div class="border-b border-base-300 p-6">
-        <.link navigate={~p"/admin"} class="flex items-center gap-2 text-lg font-semibold">
-          <.logo class="h-7 w-auto" />
-          <span>Luxpkgs Admin</span>
+      <div class="flex items-center justify-between gap-3 border-b border-base-300 p-6">
+        <.link
+          navigate={~p"/admin"}
+          class="flex min-w-0 items-center gap-2 text-base font-semibold"
+        >
+          <.logo class="h-7 w-auto shrink-0" />
+          <span class="truncate">Luxpkgs Admin</span>
         </.link>
+        <LuxpkgsWeb.Layouts.theme_toggle
+          id="admin-theme-sidebar"
+          dropdown_class="dropdown-end"
+        />
       </div>
 
       <LuxpkgsWeb.AdminNav.nav active={@active} variant={:sidebar} current_admin={@current_admin} />

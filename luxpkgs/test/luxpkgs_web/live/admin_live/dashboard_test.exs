@@ -54,6 +54,9 @@ defmodule LuxpkgsWeb.AdminLive.DashboardTest do
     assert html =~ "Recent activity"
     assert has_element?(view, "nav.dock")
     assert has_element?(view, "a[aria-current='page'][href='/admin']")
+    assert has_element?(view, "#admin-theme-header")
+    assert has_element?(view, "#admin-theme-sidebar")
+    refute has_element?(view, "#theme-dropdown")
   end
 
   test "moderators do not see recent admin activity", %{conn: conn} do

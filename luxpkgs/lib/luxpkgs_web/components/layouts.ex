@@ -96,9 +96,12 @@ defmodule LuxpkgsWeb.Layouts do
 
   See <head> in root.html.heex which applies the theme before page load.
   """
+  attr :id, :string, default: "theme-dropdown"
+  attr :dropdown_class, :string, default: "dropdown-end md:dropdown-center"
+
   def theme_toggle(assigns) do
     ~H"""
-    <details id="theme-dropdown" class="dropdown dropdown-end md:dropdown-center">
+    <details id={@id} class={["dropdown", @dropdown_class]}>
       <summary class="btn btn-ghost btn-square list-none" aria-label="Theme">
         <span class="relative inline-flex size-5">
           <.icon
@@ -123,7 +126,7 @@ defmodule LuxpkgsWeb.Layouts do
           <button
             phx-click={
               JS.dispatch("phx:set-theme", detail: %{theme: "system"})
-              |> JS.remove_attribute("open", to: "#theme-dropdown")
+              |> JS.remove_attribute("open", to: "##{@id}")
             }
             aria-label="System"
           >
@@ -137,7 +140,7 @@ defmodule LuxpkgsWeb.Layouts do
           <button
             phx-click={
               JS.dispatch("phx:set-theme", detail: %{theme: "light"})
-              |> JS.remove_attribute("open", to: "#theme-dropdown")
+              |> JS.remove_attribute("open", to: "##{@id}")
             }
             aria-label="Light"
           >
@@ -153,7 +156,7 @@ defmodule LuxpkgsWeb.Layouts do
           <button
             phx-click={
               JS.dispatch("phx:set-theme", detail: %{theme: "dark"})
-              |> JS.remove_attribute("open", to: "#theme-dropdown")
+              |> JS.remove_attribute("open", to: "##{@id}")
             }
             aria-label="Dark"
           >
