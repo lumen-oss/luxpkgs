@@ -168,17 +168,25 @@ defmodule Luxpkgs.Packages do
   defp filter_admin_featured(query, _featured), do: query
 
   @doc """
-  Returns the most popular packages ordered by total downloads.
-
-  ## Examples
-
-      iex> list_featured()
-      [%Package{}, ...]
-
-      iex> list_featured(8)
-      [%Package{}, ...]
+  Returns curated featured packages ordered by most recently featured.
   """
   def list_featured(limit \\ 4) do
+    Package
+    |> visible()
+    |> where([p], not is_nil(p.featured_at))
+    |> order_by([p], desc: p.featured_at, desc: p.id)
+    |> limit(^limit)
+    |> preload(:releases)
+    |> Repo.all()
+    |> Enum.map(&sort_releases/1)
+  end
+
+  @doc """
+  Returns the most popular packages ordered by total downloads.
+
+  Used on the home page when no packages are curated.
+  """
+  def list_popular(limit \\ 4) do
     Package
     |> visible()
     |> join(:left, [p], r in Luxpkgs.Packages.Release, on: r.package_id == p.id)

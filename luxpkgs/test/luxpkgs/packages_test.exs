@@ -212,6 +212,12 @@ defmodule Luxpkgs.PackagesTest do
     |> Repo.update!()
   end
 
+  defp set_featured_at!(package, datetime) do
+    package
+    |> Ecto.Changeset.change(featured_at: datetime)
+    |> Repo.update!()
+  end
+
   describe "visibility" do
     import Luxpkgs.AccountsFixtures, only: [user_scope_fixture: 0]
     import Luxpkgs.PackagesFixtures
@@ -243,17 +249,48 @@ defmodule Luxpkgs.PackagesTest do
       assert Packages.list_packages(:exact, package.name, []).packages == []
     end
 
-    test "list_featured/1 excludes non-active packages" do
+    test "list_featured/1 returns curated active packages ordered by featured time" do
       scope = user_scope_fixture()
-      visible = package_fixture(scope)
-      hidden = package_fixture(scope) |> set_status!(:hidden)
 
-      release_fixture(scope, hidden)
-      visible_release = release_fixture(scope, visible)
-      Packages.increment_release_download_count(visible_release)
+      package_fixture(scope, %{name: "featured_older"})
+      |> set_featured_at!(~U[2026-11-01 10:00:00Z])
 
-      assert [%{name: name}] = Packages.list_featured(4)
-      assert name == visible.name
+      package_fixture(scope, %{name: "featured_newer"})
+      |> set_featured_at!(~U[2026-11-02 10:00:00Z])
+
+      package_fixture(scope, %{name: "featured_hidden"})
+      |> set_featured_at!(~U[2026-11-03 10:00:00Z])
+      |> set_status!(:hidden)
+
+      package_fixture(scope, %{name: "featured_removed"})
+      |> set_featured_at!(~U[2026-11-04 10:00:00Z])
+      |> set_status!(:removed)
+
+      package_fixture(scope, %{name: "not_featured"})
+
+      assert Enum.map(Packages.list_featured(4), & &1.name) == [
+               "featured_newer",
+               "featured_older"
+             ]
+    end
+
+    test "list_popular/1 ranks active packages by downloads and excludes non-active packages" do
+      scope = user_scope_fixture()
+      popular = package_fixture(scope, %{name: "popular_first"})
+      less_popular = package_fixture(scope, %{name: "popular_second"})
+      hidden = package_fixture(scope, %{name: "popular_hidden"}) |> set_status!(:hidden)
+
+      popular_release = release_fixture(scope, popular)
+      less_release = release_fixture(scope, less_popular)
+      hidden_release = release_fixture(scope, hidden)
+
+      for _ <- 1..2, do: Packages.increment_release_download_count(popular_release)
+      Packages.increment_release_download_count(less_release)
+      for _ <- 1..5, do: Packages.increment_release_download_count(hidden_release)
+
+      assert [%{id: first}, %{id: second}] = Packages.list_popular(4)
+      assert first == popular.id
+      assert second == less_popular.id
     end
 
     test "total_downloads_by_user/1 excludes non-active packages" do
@@ -406,6 +443,12 @@ defmodule Luxpkgs.PackagesTest do
 
       assert {:ok, unfeatured} = Packages.unfeature_package(admin, featured)
       refute unfeatured.featured_at
+
+      assert [unfeatured_event, featured_event] = Luxpkgs.Audit.list_events()
+      assert unfeatured_event.action == "package.unfeatured"
+      assert unfeatured_event.metadata == %{"featured" => false}
+      assert featured_event.action == "package.featured"
+      assert featured_event.metadata == %{"featured" => true}
     end
 
     test "list_packages_admin/1 filters by search, status and featured" do

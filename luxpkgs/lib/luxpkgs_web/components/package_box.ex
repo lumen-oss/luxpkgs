@@ -59,7 +59,7 @@ defmodule LuxpkgsWeb.PackageBox do
     <div class="py-16 bg-base-200">
       <div class="page-container max-w-7xl">
         <!-- Featured Packages Section -->
-        <div class="mb-16">
+        <div id="featured-packages" class="mb-16">
           <div class="text-center mb-12">
             <div class="flex items-center justify-center space-x-4 mb-6">
               <div class="w-8 h-px bg-primary"></div>
@@ -67,7 +67,7 @@ defmodule LuxpkgsWeb.PackageBox do
               <div class="w-8 h-px bg-primary"></div>
             </div>
             <p class="text-base-content/70 max-w-2xl mx-auto">
-              Discover the most popular and well-maintained packages in our ecosystem
+              Discover the most popular packages in our ecosystem
             </p>
           </div>
 
@@ -84,7 +84,7 @@ defmodule LuxpkgsWeb.PackageBox do
         </div>
 
         <!-- Most Recent Updates Section -->
-        <div class="mb-16">
+        <div id="recent-updates" class="mb-16">
           <div class="text-center mb-12">
             <div class="flex items-center justify-center space-x-4 mb-6">
               <div class="w-8 h-px bg-secondary"></div>
