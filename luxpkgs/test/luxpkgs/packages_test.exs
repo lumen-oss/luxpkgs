@@ -17,6 +17,14 @@ defmodule Luxpkgs.PackagesTest do
       assert package.name == "my-pkg"
       assert package.summary == "A package"
       assert package.user_id == scope.user.id
+
+      assert [event] = Luxpkgs.Audit.list_events()
+      assert event.action == "package.created"
+      assert event.actor_label == scope.user.username
+      assert event.target_type == "package"
+      assert event.target_id == package.id
+      assert event.target_label == "my-pkg"
+      assert event.metadata == %{"status" => "active"}
     end
 
     test "create_package/2 with invalid data returns error changeset" do
@@ -62,6 +70,25 @@ defmodule Luxpkgs.PackagesTest do
       assert {:ok, %Package{} = package} = Packages.update_package(scope, package, update_attrs)
       assert package.summary == "Updated summary"
       assert package.description == "Updated description"
+
+      assert [event] = Luxpkgs.Audit.list_events()
+      assert event.action == "package.updated"
+      assert event.metadata == %{"changed" => "description, summary"}
+      refute inspect(event.metadata) =~ "Updated summary"
+      refute inspect(event.metadata) =~ "Updated description"
+    end
+
+    test "update_package/3 with no changes does not record an audit event" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+
+      assert {:ok, %Package{}} =
+               Packages.update_package(scope, package, %{
+                 summary: package.summary,
+                 description: package.description
+               })
+
+      assert Luxpkgs.Audit.list_events() == []
     end
 
     test "update_package/3 with invalid scope returns error" do

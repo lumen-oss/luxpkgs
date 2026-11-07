@@ -315,16 +315,34 @@ defmodule Luxpkgs.Packages do
         %{"name" => _} = attrs
       ) do
     if has_permission?(scope, attrs) do
-      with {:ok, package = %Package{}} <-
-             %Package{}
-             |> Package.changeset(attrs, scope)
-             |> Repo.insert() do
-        package = Repo.preload(package, :releases)
-        broadcast(scope, {:created, package})
-        {:ok, package}
-      else
-        {:error, changeset} ->
+      changeset = Package.changeset(%Package{}, attrs, scope)
+
+      Multi.new()
+      |> Multi.insert(:package, changeset)
+      |> Multi.insert(:audit, fn %{package: package} ->
+        scope.user
+        |> owner_audit(
+          "package.created",
+          "package",
+          package.id,
+          package.name,
+          %{"status" => to_string(package.status)}
+        )
+        |> Audit.changeset()
+      end)
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{package: package, audit: event}} ->
+          package = Repo.preload(package, :releases)
+          Audit.broadcast(event)
+          broadcast(scope, {:created, package})
+          {:ok, package}
+
+        {:error, :package, changeset, _changes} ->
           {:error, changeset}
+
+        {:error, _step, reason, _changes} ->
+          {:error, reason}
       end
     else
       {:error, :insufficient_permissions}
@@ -353,12 +371,45 @@ defmodule Luxpkgs.Packages do
         %{summary: _, description: _} = attrs
       ) do
     if has_permission?(scope, package) do
-      with {:ok, package = %Package{}} <-
-             package
-             |> Package.changeset(attrs, scope)
-             |> Repo.update() do
-        broadcast(scope, {:updated, package})
+      changeset = Package.changeset(package, attrs, scope)
+
+      changed =
+        changeset.changes
+        |> Map.keys()
+        |> Enum.map(&to_string/1)
+        |> Enum.sort()
+
+      if changed == [] do
         {:ok, package}
+      else
+        metadata = %{"changed" => Enum.join(changed, ", ")}
+
+        audit_attrs =
+          owner_audit(
+            scope.user,
+            "package.updated",
+            "package",
+            package.id,
+            package.name,
+            metadata
+          )
+
+        Multi.new()
+        |> Multi.update(:package, changeset)
+        |> Multi.insert(:audit, Audit.changeset(audit_attrs))
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{package: package, audit: event}} ->
+            Audit.broadcast(event)
+            broadcast(scope, {:updated, package})
+            {:ok, package}
+
+          {:error, :package, changeset, _changes} ->
+            {:error, changeset}
+
+          {:error, _step, reason, _changes} ->
+            {:error, reason}
+        end
       end
     else
       {:error, :insufficient_permissions}
@@ -484,6 +535,18 @@ defmodule Luxpkgs.Packages do
       {:error, _step, reason, _changes} ->
         {:error, reason}
     end
+  end
+
+  defp owner_audit(%User{} = user, action, target_type, target_id, target_label, metadata) do
+    %{
+      type: :package,
+      action: action,
+      actor_label: user.username || user.email,
+      target_type: target_type,
+      target_id: target_id,
+      target_label: target_label,
+      metadata: metadata
+    }
   end
 
   @doc """
@@ -717,8 +780,24 @@ defmodule Luxpkgs.Packages do
                  {:error, reason}
              end
            end)
+           |> Multi.insert(:audit, fn %{release: release} ->
+             scope.user
+             |> owner_audit(
+               "release.published",
+               "release",
+               release.id,
+               "#{package.name} #{release.version}",
+               %{
+                 "package_id" => package.id,
+                 "version" => to_string(release.version),
+                 "rockspec_path" => release.rockspec_path
+               }
+             )
+             |> Audit.changeset()
+           end)
            |> Repo.transaction() do
-        {:ok, %{release: release}} ->
+        {:ok, %{release: release, audit: event}} ->
+          Audit.broadcast(event)
           broadcast(scope, {:created, release})
           {:ok, release}
 
