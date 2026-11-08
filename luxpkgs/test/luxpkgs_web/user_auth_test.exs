@@ -7,6 +7,7 @@ defmodule LuxpkgsWeb.UserAuthTest do
   alias LuxpkgsWeb.UserAuth
 
   import Luxpkgs.AccountsFixtures
+  import Luxpkgs.AdminFixtures
 
   @remember_me_cookie "_lua_nox_web_user_remember_me"
   @remember_me_cookie_max_age 60 * 60 * 24 * 14
@@ -385,6 +386,98 @@ defmodule LuxpkgsWeb.UserAuthTest do
         event: "disconnect",
         topic: "users_sessions:dG9rZW4y"
       }
+    end
+  end
+
+  describe "suspension" do
+    test "log_in_user/3 refuses a suspended user", %{conn: conn} do
+      user = user_fixture()
+      actor = admin_fixture(%{role: :admin})
+      {:ok, suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+
+      conn = conn |> fetch_flash() |> UserAuth.log_in_user(suspended)
+
+      refute get_session(conn, :user_token)
+      assert redirected_to(conn) == ~p"/"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Account suspended."
+    end
+
+    test "fetch_current_scope_for_user/2 ignores a suspended user's token", %{conn: conn} do
+      user = user_fixture()
+      token = Accounts.generate_user_session_token(user)
+
+      user
+      |> Luxpkgs.Accounts.User.suspend_changeset(%{suspension_reason: "Spam"})
+      |> Luxpkgs.Repo.update!()
+
+      conn = conn |> put_session(:user_token, token) |> UserAuth.fetch_current_scope_for_user([])
+
+      assert conn.assigns.current_scope == nil
+      refute Accounts.get_user_by_session_token(token)
+    end
+
+    test "on_mount :mount_current_scope ignores a suspended user's token", %{conn: conn} do
+      user = user_fixture()
+      user_token = Accounts.generate_user_session_token(user)
+
+      user
+      |> Luxpkgs.Accounts.User.suspend_changeset(%{suspension_reason: "Spam"})
+      |> Luxpkgs.Repo.update!()
+
+      session = conn |> put_session(:user_token, user_token) |> get_session()
+
+      {:cont, updated_socket} =
+        UserAuth.on_mount(:mount_current_scope, %{}, session, %LiveView.Socket{})
+
+      assert updated_socket.assigns.current_scope == nil
+    end
+
+    test "on_mount :require_authenticated redirects a suspended user", %{conn: conn} do
+      user = user_fixture()
+      user_token = Accounts.generate_user_session_token(user)
+
+      user
+      |> Luxpkgs.Accounts.User.suspend_changeset(%{suspension_reason: "Spam"})
+      |> Luxpkgs.Repo.update!()
+
+      session = conn |> put_session(:user_token, user_token) |> get_session()
+
+      socket = %LiveView.Socket{
+        endpoint: LuxpkgsWeb.Endpoint,
+        assigns: %{__changed__: %{}, flash: %{}}
+      }
+
+      {:halt, updated_socket} =
+        UserAuth.on_mount(:require_authenticated, %{}, session, socket)
+
+      assert updated_socket.assigns.current_scope == nil
+    end
+
+    test "the OAuth callback rejects a suspended user before TOTP setup", %{conn: conn} do
+      user = user_fixture()
+      actor = admin_fixture(%{role: :admin})
+      {:ok, suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+
+      auth = %Ueberauth.Auth{
+        provider: :github,
+        uid: suspended.username,
+        info: %Ueberauth.Auth.Info{
+          email: suspended.email,
+          nickname: suspended.username,
+          name: suspended.aka,
+          image: nil
+        }
+      }
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Account suspended."
+      refute get_session(conn, :pending_totp_user_id)
     end
   end
 end

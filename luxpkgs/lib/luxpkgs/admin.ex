@@ -68,6 +68,32 @@ defmodule Luxpkgs.Admin do
 
   def get_active_admin_for_user(_user_id), do: nil
 
+  @doc """
+  Returns the admin row for a user, active or inactive.
+  """
+  def get_admin_for_user(%User{id: user_id}), do: get_admin_for_user(user_id)
+
+  def get_admin_for_user(user_id) when is_integer(user_id) and user_id > 0 do
+    Repo.one(
+      from admin in Admin,
+        where: admin.user_id == ^user_id,
+        preload: [:user]
+    )
+  end
+
+  def get_admin_for_user(_user_id), do: nil
+
+  @doc """
+  Returns the number of active users with the admin role. Moderators are excluded.
+  """
+  def active_admin_count do
+    Repo.one(
+      from admin in Admin,
+        where: admin.active == true and admin.role == :admin,
+        select: count(admin.id)
+    )
+  end
+
   defp grant(user, role) do
     case Repo.get_by(Admin, user_id: user.id) do
       nil ->

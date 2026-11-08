@@ -8,6 +8,9 @@ defmodule Luxpkgs.Accounts do
   alias Luxpkgs.Repo
 
   alias Luxpkgs.Accounts.{User, UserToken}
+  alias Luxpkgs.Admin
+  alias Luxpkgs.Admin.Admin, as: AdminRow
+  alias Luxpkgs.Audit
   alias Luxpkgs.Packages.Package
 
   ## Database getters
@@ -155,6 +158,103 @@ defmodule Luxpkgs.Accounts do
   def delete_user_session_token(token) do
     Repo.delete_all(UserToken.by_token_and_context_query(token, "session"))
     :ok
+  end
+
+  ## Suspension
+
+  @doc """
+  Suspends a user, revokes their session tokens, and deactivates their admin row.
+
+  Returns the revoked tokens so callers can disconnect live sockets.
+  """
+  def suspend_user(%AdminRow{} = actor, %User{} = user, reason) do
+    changeset = User.suspend_changeset(user, %{suspension_reason: reason})
+    actor = Repo.preload(actor, :user)
+
+    with :ok <- ensure_not_self(actor, user),
+         :ok <- ensure_not_last_admin(user),
+         :ok <- validate_changeset(changeset) do
+      tokens = list_user_tokens(user)
+
+      Multi.new()
+      |> Multi.update(:user, changeset)
+      |> Multi.update_all(
+        :admin,
+        from(a in AdminRow, where: a.user_id == ^user.id),
+        set: [active: false]
+      )
+      |> Multi.delete_all(:tokens, from(t in UserToken, where: t.user_id == ^user.id))
+      |> Multi.insert(
+        :audit,
+        Audit.changeset(
+          suspension_audit_attrs("user.suspended", actor, user, %{"reason" => reason})
+        )
+      )
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{user: user, audit: event}} ->
+          Audit.broadcast(event)
+          {:ok, user, tokens}
+
+        {:error, _step, reason, _changes} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Clears a user's suspension. An inactive admin row stays inactive.
+  """
+  def unsuspend_user(%AdminRow{} = actor, %User{} = user) do
+    actor = Repo.preload(actor, :user)
+
+    Multi.new()
+    |> Multi.update(:user, User.unsuspend_changeset(user))
+    |> Multi.insert(
+      :audit,
+      Audit.changeset(suspension_audit_attrs("user.unsuspended", actor, user, %{}))
+    )
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: user, audit: event}} ->
+        Audit.broadcast(event)
+        {:ok, user}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
+  defp ensure_not_self(%AdminRow{user_id: id}, %User{id: id}), do: {:error, :self_suspend}
+  defp ensure_not_self(_actor, _user), do: :ok
+
+  # shortcut: the last-admin count is read before the transaction, so two concurrent
+  # suspensions could both pass it; add a row lock if that becomes possible.
+  defp ensure_not_last_admin(user) do
+    case Admin.get_admin_for_user(user) do
+      %AdminRow{active: true, role: :admin} ->
+        if Admin.active_admin_count() <= 1, do: {:error, :last_admin}, else: :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp validate_changeset(changeset) do
+    if changeset.valid?, do: :ok, else: {:error, changeset}
+  end
+
+  defp suspension_audit_attrs(action, actor, user, metadata) do
+    %{
+      type: :user,
+      action: action,
+      actor_admin_id: actor.id,
+      actor_label: actor.user.username || actor.user.email,
+      target_type: "user",
+      target_id: user.id,
+      target_label: user.username || user.email,
+      metadata: metadata
+    }
   end
 
   ## Account deletion

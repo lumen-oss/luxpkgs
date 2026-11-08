@@ -16,13 +16,20 @@ defmodule LuxpkgsWeb.UserOauth do
       %Luxpkgs.Accounts.User{} = user ->
         user = refresh_avatar(user, auth.info.image)
 
-        if Luxpkgs.Accounts.User.has_totp?(user) do
-          conn
-          |> LuxpkgsWeb.UserAuth.log_in_user(user)
-        else
-          conn
-          |> put_session(:pending_totp_user_id, user.id)
-          |> redirect(to: ~p"/setup-totp")
+        cond do
+          Luxpkgs.Accounts.User.suspended?(user) ->
+            conn
+            |> put_flash(:error, "Account suspended.")
+            |> redirect(to: ~p"/")
+
+          Luxpkgs.Accounts.User.has_totp?(user) ->
+            conn
+            |> LuxpkgsWeb.UserAuth.log_in_user(user)
+
+          true ->
+            conn
+            |> put_session(:pending_totp_user_id, user.id)
+            |> redirect(to: ~p"/setup-totp")
         end
 
       nil when is_nil(auth.info.email) ->

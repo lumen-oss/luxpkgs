@@ -17,6 +17,8 @@ defmodule Luxpkgs.Accounts.User do
     field :aka, :string
     field :avatar_url, :string
     field :bio, :string
+    field :suspended_at, :utc_datetime
+    field :suspension_reason, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -29,6 +31,20 @@ defmodule Luxpkgs.Accounts.User do
     user
     |> Ecto.Changeset.change(%{bio: sanitize_bio(bio)})
     |> validate_length(:bio, max: 160)
+  end
+
+  def suspended?(%__MODULE__{suspended_at: nil}), do: false
+  def suspended?(%__MODULE__{}), do: true
+
+  def suspend_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:suspension_reason])
+    |> validate_required([:suspension_reason])
+    |> put_change(:suspended_at, DateTime.utc_now(:second))
+  end
+
+  def unsuspend_changeset(user) do
+    change(user, %{suspended_at: nil, suspension_reason: nil})
   end
 
   defp sanitize_bio(bio) when is_binary(bio) do

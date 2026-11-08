@@ -25,6 +25,7 @@ defmodule LuxpkgsWeb.Router do
     plug :accepts, ["json"]
     plug Pipelines.ApiPipeline
     plug :fetch_current_api_token_for_user
+    plug :require_api_scope
     plug OpenApiSpex.Plug.PutApiSpec, module: LuxpkgsWeb.ApiSpec
     plug LuxpkgsWeb.Plugs.RateLimiter, tier: :general
   end

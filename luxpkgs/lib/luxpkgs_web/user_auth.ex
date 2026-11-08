@@ -34,11 +34,17 @@ defmodule LuxpkgsWeb.UserAuth do
   or falls back to the `signed_in_path/1`.
   """
   def log_in_user(conn, user, params \\ %{}) do
-    user_return_to = get_session(conn, :user_return_to)
+    if Accounts.User.suspended?(user) do
+      conn
+      |> put_flash(:error, "Account suspended.")
+      |> redirect(to: ~p"/")
+    else
+      user_return_to = get_session(conn, :user_return_to)
 
-    conn
-    |> create_or_extend_session(user, params)
-    |> redirect(to: user_return_to || signed_in_path(conn))
+      conn
+      |> create_or_extend_session(user, params)
+      |> redirect(to: user_return_to || signed_in_path(conn))
+    end
   end
 
   @doc """
@@ -78,6 +84,24 @@ defmodule LuxpkgsWeb.UserAuth do
             conn
             |> assign(:current_scope, scope)
         end
+    end
+  end
+
+  @doc """
+  Rejects a request whose bearer token is valid but no scope could be loaded,
+  such as a token belonging to a suspended user.
+  """
+  def require_api_scope(conn, _opts) do
+    token = Luxpkgs.Guardian.Plug.current_token(conn)
+
+    if token && not RevokedKeys.is_revoked?(token) && is_nil(conn.assigns[:current_scope]) do
+      conn
+      |> put_status(:unauthorized)
+      |> put_view(json: LuxpkgsWeb.ErrorJSON)
+      |> render(:"401")
+      |> halt()
+    else
+      conn
     end
   end
 

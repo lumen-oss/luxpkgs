@@ -37,6 +37,8 @@ defmodule Luxpkgs.Audit.Catalog do
       actions: [
         %{action: "user.registered", label: "signed up"},
         %{action: "user.deleted", label: "deleted their account"},
+        %{action: "user.suspended", label: "suspended"},
+        %{action: "user.unsuspended", label: "unsuspended"},
         %{action: "user.totp_enabled", label: "enabled two-factor authentication"},
         %{action: "user.totp_disabled", label: "disabled two-factor authentication"},
         %{action: "user.backup_codes_regenerated", label: "regenerated backup codes"},

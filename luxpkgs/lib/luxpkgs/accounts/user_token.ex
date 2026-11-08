@@ -55,7 +55,8 @@ defmodule Luxpkgs.Accounts.UserToken do
     query =
       from token in by_token_and_context_query(token, "session"),
         join: user in assoc(token, :user),
-        where: token.inserted_at > ago(@session_validity_in_days, "day"),
+        where:
+          token.inserted_at > ago(@session_validity_in_days, "day") and is_nil(user.suspended_at),
         select: {%{user | authenticated_at: token.authenticated_at}, token.inserted_at}
 
     {:ok, query}
