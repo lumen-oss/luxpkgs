@@ -68,6 +68,7 @@ defmodule Luxpkgs.Audit do
     |> filter_action(opts[:action])
     |> filter_actor(opts[:actor])
     |> filter_target_type(opts[:target_type])
+    |> filter_target_id(opts[:target_id])
     |> filter_search(opts[:q])
     |> filter_from(opts[:from])
     |> filter_to(opts[:to])
@@ -119,6 +120,12 @@ defmodule Luxpkgs.Audit do
   end
 
   defp filter_target_type(query, _target_type), do: query
+
+  defp filter_target_id(query, target_id) when is_integer(target_id) do
+    where(query, [event], event.target_id == ^target_id)
+  end
+
+  defp filter_target_id(query, _target_id), do: query
 
   defp filter_search(query, term) when is_binary(term) do
     case String.trim(term) do

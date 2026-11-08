@@ -54,6 +54,13 @@ defmodule LuxpkgsWeb.AdminNav do
         permission: :view_reports
       },
       %{
+        key: :users,
+        label: "Users",
+        path: "/admin/users",
+        icon: :users,
+        permission: :view_users
+      },
+      %{
         key: :audit,
         label: "Audit",
         path: "/admin/audit",

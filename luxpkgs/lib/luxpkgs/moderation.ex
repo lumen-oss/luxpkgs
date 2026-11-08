@@ -70,6 +70,13 @@ defmodule Luxpkgs.Moderation do
     |> Repo.all()
   end
 
+  @doc """
+  Returns the number of reports filed by a user.
+  """
+  def count_reports_by_user(%User{id: user_id}) do
+    Repo.aggregate(from(r in Report, where: r.reporter_id == ^user_id), :count, :id)
+  end
+
   def resolve_report(%Admin{} = admin, %Report{} = report, note) do
     close_report(admin, report, :resolved, "report.resolved", :resolve_report, note)
   end

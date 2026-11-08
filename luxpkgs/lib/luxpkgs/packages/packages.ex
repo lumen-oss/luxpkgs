@@ -82,6 +82,32 @@ defmodule Luxpkgs.Packages do
   defp maybe_active_only(query, false), do: where(query, [p], p.status == :active)
 
   @doc """
+  Returns package and download totals for a user, including hidden and removed packages.
+  """
+  def owner_stats(%User{id: user_id}) do
+    Package
+    |> join(:left, [p], r in Luxpkgs.Packages.Release, on: r.package_id == p.id)
+    |> where([p], p.user_id == ^user_id)
+    |> select([p, r], %{
+      package_count: count(p.id, :distinct),
+      download_count: coalesce(sum(r.download_count), 0)
+    })
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns all packages owned by a user, including hidden and removed packages.
+  """
+  def list_packages_by_user(%User{id: user_id}) do
+    Package
+    |> where([p], p.user_id == ^user_id)
+    |> order_by([p], desc: p.updated_at, desc: p.id)
+    |> preload(:releases)
+    |> Repo.all()
+    |> Enum.map(&sort_releases/1)
+  end
+
+  @doc """
   Returns a paginated package list for the admin area, including hidden
   packages. Supports a text search over package name, summary and owner
   username, plus status and featured filters.

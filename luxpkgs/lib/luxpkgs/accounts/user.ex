@@ -20,6 +20,8 @@ defmodule Luxpkgs.Accounts.User do
     field :suspended_at, :utc_datetime
     field :suspension_reason, :string
 
+    has_one :admin, Luxpkgs.Admin.Admin
+
     timestamps(type: :utc_datetime)
   end
 
