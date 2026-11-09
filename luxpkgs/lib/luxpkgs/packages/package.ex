@@ -1,20 +1,22 @@
 defmodule Luxpkgs.Packages.Package do
   alias Luxpkgs.Accounts.Scope
   use Ecto.Schema
+  use Flop.Schema
   import Ecto.Changeset
 
-  @derive {Flop.Schema,
-           filterable: [:name, :summary, :search, :user_id],
-           sortable: [:name, :inserted_at],
-           default_order: %{
-             order_by: [:inserted_at],
-             order_directions: [:desc]
-           },
-           default_limit: 12,
-           max_limit: 50,
-           adapter_opts: [
-             compound_fields: [search: [:name, :summary]]
-           ]}
+  @flop_options [
+    filterable: [:name, :summary, :search, :user_id],
+    sortable: [:name, :inserted_at],
+    default_order: %{
+      order_by: [:inserted_at],
+      order_directions: [:desc]
+    },
+    default_limit: 12,
+    max_limit: 50,
+    adapter_opts: [
+      compound_fields: [search: [:name, :summary]]
+    ]
+  ]
 
   schema "packages" do
     field :name, :string
