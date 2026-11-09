@@ -7,7 +7,7 @@ defmodule Luxpkgs.Accounts do
   alias Ecto.Multi
   alias Luxpkgs.Repo
 
-  alias Luxpkgs.Accounts.{User, UserToken}
+  alias Luxpkgs.Accounts.{User, UserToken, TotpSecret, TotpBackupCode}
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRow
   alias Luxpkgs.Audit
@@ -360,6 +360,42 @@ defmodule Luxpkgs.Accounts do
   """
   def list_user_tokens(%User{} = user) do
     Repo.all(UserToken.by_user_and_contexts_query(user, :all))
+  end
+
+  @doc """
+  Clears a user's TOTP and backup codes and revokes their session tokens.
+
+  This is the CLI break-glass path for a user who has lost both their
+  authenticator and their backup codes.
+  """
+  def reset_totp(%User{} = user) do
+    tokens = list_user_tokens(user)
+
+    Multi.new()
+    |> Multi.delete_all(:backup_codes, from(c in TotpBackupCode, where: c.user_id == ^user.id))
+    |> Multi.delete_all(:totp_secret, from(t in TotpSecret, where: t.user_id == ^user.id))
+    |> Multi.delete_all(:tokens, from(t in UserToken, where: t.user_id == ^user.id))
+    |> Multi.insert(
+      :audit,
+      Audit.changeset(%{
+        type: :user,
+        action: "user.totp_reset",
+        actor_label: "cli",
+        target_type: "user",
+        target_id: user.id,
+        target_label: user.username || user.email,
+        metadata: %{}
+      })
+    )
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{audit: event}} ->
+        Audit.broadcast(event)
+        {:ok, tokens}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
+    end
   end
 
   @doc """
