@@ -42,6 +42,7 @@ defmodule Luxpkgs.Audit.Catalog do
         %{action: "user.unsuspended", label: "unsuspended"},
         %{action: "user.totp_enabled", label: "enabled two-factor authentication"},
         %{action: "user.totp_disabled", label: "disabled two-factor authentication"},
+        %{action: "user.totp_reset", label: "had two-factor authentication reset"},
         %{action: "user.backup_codes_regenerated", label: "regenerated backup codes"},
         %{action: "user.api_key_generated", label: "generated an API key"},
         %{action: "user.api_key_revoked", label: "revoked an API key"}
