@@ -52,7 +52,7 @@ defmodule Luxpkgs.MixProject do
       {:jason, "~> 1.2"},
       {:mdex, "~> 0.13"},
       {:phoenix_html_sanitizer, "~> 1.2"},
-      {:phoenix, "~> 1.8.0-rc.0", override: true},
+      {:phoenix, "~> 1.8"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
