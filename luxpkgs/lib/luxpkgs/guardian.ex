@@ -35,13 +35,17 @@ defmodule Luxpkgs.Guardian do
       ) do
     case Luxpkgs.Accounts.get_user(id) do
       %User{} = user ->
-        {:ok,
-         Scope.for_jwt(%{
-           user: user,
-           package_whitelist: allowed_packages,
-           write_restricted: write_restriction,
-           require_tfa: Map.get(claims, "require_tfa", true)
-         })}
+        if User.suspended?(user) do
+          {:error, :user_suspended}
+        else
+          {:ok,
+           Scope.for_jwt(%{
+             user: user,
+             package_whitelist: allowed_packages,
+             write_restricted: write_restriction,
+             require_tfa: Map.get(claims, "require_tfa", true)
+           })}
+        end
 
       nil ->
         {:error, :user_not_found}

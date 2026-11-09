@@ -17,6 +17,14 @@ defmodule Luxpkgs.PackagesTest do
       assert package.name == "my-pkg"
       assert package.summary == "A package"
       assert package.user_id == scope.user.id
+
+      assert [event] = Luxpkgs.Audit.list_events()
+      assert event.action == "package.created"
+      assert event.actor_label == scope.user.username
+      assert event.target_type == "package"
+      assert event.target_id == package.id
+      assert event.target_label == "my-pkg"
+      assert event.metadata == %{"status" => "active"}
     end
 
     test "create_package/2 with invalid data returns error changeset" do
@@ -62,6 +70,25 @@ defmodule Luxpkgs.PackagesTest do
       assert {:ok, %Package{} = package} = Packages.update_package(scope, package, update_attrs)
       assert package.summary == "Updated summary"
       assert package.description == "Updated description"
+
+      assert [event] = Luxpkgs.Audit.list_events()
+      assert event.action == "package.updated"
+      assert event.metadata == %{"changed" => "description, summary"}
+      refute inspect(event.metadata) =~ "Updated summary"
+      refute inspect(event.metadata) =~ "Updated description"
+    end
+
+    test "update_package/3 with no changes does not record an audit event" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+
+      assert {:ok, %Package{}} =
+               Packages.update_package(scope, package, %{
+                 summary: package.summary,
+                 description: package.description
+               })
+
+      assert Luxpkgs.Audit.list_events() == []
     end
 
     test "update_package/3 with invalid scope returns error" do
@@ -124,6 +151,393 @@ defmodule Luxpkgs.PackagesTest do
 
     test "get_release/1 returns nil for unknown id" do
       refute Packages.get_release(-1)
+    end
+
+    test "yank_release/2 marks a release and unyank_release/2 clears it" do
+      scope = user_scope_fixture()
+      release = release_fixture(scope)
+
+      assert {:ok, yanked} = Packages.yank_release(scope, release)
+      assert yanked.yanked_at
+      assert Repo.get!(Luxpkgs.Packages.Release, release.id).yanked_at
+      assert Enum.any?(Repo.all(Luxpkgs.Audit.Event), &(&1.action == "release.yanked"))
+
+      assert {:ok, unyanked} = Packages.unyank_release(scope, yanked)
+      refute unyanked.yanked_at
+      assert Enum.any?(Repo.all(Luxpkgs.Audit.Event), &(&1.action == "release.unyanked"))
+    end
+
+    test "yank_release/2 rejects non-owners" do
+      scope = user_scope_fixture()
+      other_scope = user_scope_fixture()
+      release = release_fixture(scope)
+
+      assert {:error, :insufficient_permissions} = Packages.yank_release(other_scope, release)
+      refute Repo.get!(Luxpkgs.Packages.Release, release.id).yanked_at
+    end
+
+    test "latest_release/1 skips yanked releases" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      release_fixture(scope, package, version: "1.0.0")
+
+      release_fixture(scope, package,
+        version: "2.0.0",
+        yanked_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      )
+
+      package = Packages.get_package!(package.name)
+      assert Packages.latest_version(package) == "1.0.0"
+      assert Packages.latest_release(package).version == Version.parse!("1.0.0")
+    end
+
+    test "yanked releases stay available by exact version" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      release = release_fixture(scope, package, version: "1.0.0")
+
+      assert {:ok, _yanked} = Packages.yank_release(scope, release)
+
+      package = Packages.get_package!(package.name)
+
+      assert Packages.get_release_by_package_and_version(package, "1.0.0").id == release.id
+    end
+  end
+
+  alias Luxpkgs.Repo
+
+  defp set_status!(package, status) do
+    package
+    |> Ecto.Changeset.change(status: status)
+    |> Repo.update!()
+  end
+
+  defp set_featured_at!(package, datetime) do
+    package
+    |> Ecto.Changeset.change(featured_at: datetime)
+    |> Repo.update!()
+  end
+
+  describe "visibility" do
+    import Luxpkgs.AccountsFixtures, only: [user_scope_fixture: 0]
+    import Luxpkgs.PackagesFixtures
+
+    test "get_package/1 hides non-active packages, get_package_any/1 does not" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+
+      refute Packages.get_package(package.name)
+      assert Packages.get_package_any(package.name).id == package.id
+      assert Packages.get_package_any!(package.name).id == package.id
+    end
+
+    test "list_packages_paginated/1 excludes non-active packages" do
+      scope = user_scope_fixture()
+      package_fixture(scope)
+      package_fixture(scope) |> set_status!(:hidden)
+      package_fixture(scope) |> set_status!(:hidden)
+
+      assert {:ok, {packages, meta}} = Packages.list_packages_paginated(%{})
+      assert length(packages) == 1
+      assert meta.total_count == 1
+    end
+
+    test "list_packages/3 excludes non-active packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+
+      assert Packages.list_packages(:exact, package.name, []).packages == []
+    end
+
+    test "list_featured/1 returns curated active packages ordered by featured time" do
+      scope = user_scope_fixture()
+
+      package_fixture(scope, %{name: "featured_older"})
+      |> set_featured_at!(~U[2026-11-01 10:00:00Z])
+
+      package_fixture(scope, %{name: "featured_newer"})
+      |> set_featured_at!(~U[2026-11-02 10:00:00Z])
+
+      package_fixture(scope, %{name: "featured_hidden"})
+      |> set_featured_at!(~U[2026-11-03 10:00:00Z])
+      |> set_status!(:hidden)
+
+      package_fixture(scope, %{name: "featured_removed"})
+      |> set_featured_at!(~U[2026-11-04 10:00:00Z])
+      |> set_status!(:removed)
+
+      package_fixture(scope, %{name: "not_featured"})
+
+      assert Enum.map(Packages.list_featured(4), & &1.name) == [
+               "featured_newer",
+               "featured_older"
+             ]
+    end
+
+    test "list_popular/1 ranks active packages by downloads and excludes non-active packages" do
+      scope = user_scope_fixture()
+      popular = package_fixture(scope, %{name: "popular_first"})
+      less_popular = package_fixture(scope, %{name: "popular_second"})
+      hidden = package_fixture(scope, %{name: "popular_hidden"}) |> set_status!(:hidden)
+
+      popular_release = release_fixture(scope, popular)
+      less_release = release_fixture(scope, less_popular)
+      hidden_release = release_fixture(scope, hidden)
+
+      for _ <- 1..2, do: Packages.increment_release_download_count(popular_release)
+      Packages.increment_release_download_count(less_release)
+      for _ <- 1..5, do: Packages.increment_release_download_count(hidden_release)
+
+      assert [%{id: first}, %{id: second}] = Packages.list_popular(4)
+      assert first == popular.id
+      assert second == less_popular.id
+    end
+
+    test "total_downloads_by_user/1 excludes non-active packages" do
+      scope = user_scope_fixture()
+      hidden = package_fixture(scope) |> set_status!(:hidden)
+      release = release_fixture(scope, hidden)
+      Packages.increment_release_download_count(release)
+
+      assert Packages.total_downloads_by_user(scope.user) == 0
+    end
+
+    test "get_package_by_user_and_name/2 excludes non-active packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+
+      refute Packages.get_package_by_user_and_name(scope.user, package.name)
+    end
+
+    test "get_public_release/1 only returns releases of active packages" do
+      scope = user_scope_fixture()
+      release = release_fixture(scope)
+      assert Packages.get_public_release(release.id).id == release.id
+
+      Luxpkgs.Packages.Package |> Repo.get!(release.package_id) |> set_status!(:hidden)
+      refute Packages.get_public_release(release.id)
+    end
+
+    test "increment_release_download_count/1 increments atomically" do
+      scope = user_scope_fixture()
+      release = release_fixture(scope)
+
+      Packages.increment_release_download_count(release)
+      Packages.increment_release_download_count(release)
+
+      assert Repo.get!(Luxpkgs.Packages.Release, release.id).download_count == 2
+    end
+  end
+
+  describe "moderation" do
+    import Luxpkgs.AccountsFixtures, only: [user_scope_fixture: 0]
+    import Luxpkgs.AdminFixtures
+    import Luxpkgs.PackagesFixtures
+
+    alias Luxpkgs.Packages.Package
+
+    test "hide_package/2 hides the package and records an audit event" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :moderator})
+
+      assert {:ok, hidden} = Packages.hide_package(admin, package)
+      assert hidden.status == :hidden
+
+      assert [event] = Luxpkgs.Audit.list_events()
+      assert event.action == "package.hidden"
+      assert event.actor_admin_id == admin.id
+      assert event.target_id == package.id
+    end
+
+    test "hide_package/2 clears the search cache" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :moderator})
+
+      assert Packages.list_packages(:exact, package.name, []).packages != []
+      assert {:ok, _package} = Packages.hide_package(admin, package)
+      assert Packages.list_packages(:exact, package.name, []).packages == []
+    end
+
+    test "unhide_package/2 makes a hidden package visible again" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:hidden)
+      admin = admin_fixture(%{role: :moderator})
+
+      assert {:ok, active} = Packages.unhide_package(admin, package)
+      assert active.status == :active
+    end
+
+    test "remove_package/3 removes active and hidden packages" do
+      scope = user_scope_fixture()
+      active = package_fixture(scope)
+      hidden = package_fixture(scope) |> set_status!(:hidden)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:ok, %{status: :removed}} = Packages.remove_package(admin, active)
+      assert {:ok, %{status: :removed}} = Packages.remove_package(admin, hidden)
+
+      actions = Enum.map(Luxpkgs.Audit.list_events(), & &1.action)
+      assert Enum.count(actions, &(&1 == "package.removed")) == 2
+    end
+
+    test "remove_package/3 clears the search cache and restore makes the package visible again" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+
+      assert Packages.list_packages(:exact, package.name, []).packages != []
+
+      assert {:ok, removed} = Packages.remove_package(admin, package)
+      assert Packages.list_packages(:exact, package.name, []).packages == []
+
+      assert {:ok, restored} = Packages.restore_package(admin, removed)
+      assert restored.status == :active
+      assert Packages.list_packages(:exact, package.name, []).packages != []
+    end
+
+    test "a removed package can be hidden again" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope) |> set_status!(:removed)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:ok, hidden} = Packages.hide_package(admin, package)
+      assert hidden.status == :hidden
+    end
+
+    test "restore_package/2 rejects packages that are not removed" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:error, :invalid_transition} = Packages.restore_package(admin, package)
+    end
+
+    test "moderators cannot remove or restore packages" do
+      scope = user_scope_fixture()
+      active = package_fixture(scope)
+      removed = package_fixture(scope) |> set_status!(:removed)
+      moderator = admin_fixture(%{role: :moderator})
+
+      assert {:error, :insufficient_permissions} = Packages.remove_package(moderator, active)
+      assert {:error, :insufficient_permissions} = Packages.remove_package(moderator, removed)
+      assert {:error, :insufficient_permissions} = Packages.restore_package(moderator, removed)
+    end
+
+    test "moderators cannot feature packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      moderator = admin_fixture(%{role: :moderator})
+
+      assert {:error, :insufficient_permissions} = Packages.feature_package(moderator, package)
+    end
+
+    test "admins can feature and unfeature packages" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+
+      assert {:ok, featured} = Packages.feature_package(admin, package)
+      assert featured.featured_at
+
+      assert {:ok, unfeatured} = Packages.unfeature_package(admin, featured)
+      refute unfeatured.featured_at
+
+      assert [unfeatured_event, featured_event] = Luxpkgs.Audit.list_events()
+      assert unfeatured_event.action == "package.unfeatured"
+      assert unfeatured_event.metadata == %{"featured" => false}
+      assert featured_event.action == "package.featured"
+      assert featured_event.metadata == %{"featured" => true}
+    end
+
+    test "list_packages_admin/1 filters by search, status and featured" do
+      scope = user_scope_fixture()
+      active = package_fixture(scope, %{name: "admin_active"})
+      hidden = package_fixture(scope, %{name: "admin_hidden"}) |> set_status!(:hidden)
+      removed = package_fixture(scope, %{name: "admin_removed"}) |> set_status!(:removed)
+      admin = admin_fixture(%{role: :admin})
+      {:ok, featured} = Packages.feature_package(admin, active)
+
+      ids =
+        Packages.list_packages_admin(search: scope.user.username).packages
+        |> Enum.map(& &1.id)
+        |> Enum.sort()
+
+      assert ids == Enum.sort([active.id, hidden.id, removed.id])
+
+      assert [%{id: id}] = Packages.list_packages_admin(status: "hidden").packages
+      assert id == hidden.id
+
+      assert [%{id: removed_id}] = Packages.list_packages_admin(status: "removed").packages
+      assert removed_id == removed.id
+
+      assert [%{id: id}] = Packages.list_packages_admin(featured: "true").packages
+      assert id == featured.id
+
+      assert Packages.list_packages_admin(search: "admin_active").total_count == 1
+    end
+  end
+
+  describe "transfer_package/3" do
+    import Luxpkgs.AccountsFixtures
+    import Luxpkgs.AdminFixtures
+    import Luxpkgs.PackagesFixtures
+
+    alias Luxpkgs.Packages.Package
+
+    test "transfers a deleted owner's package and records an audit event" do
+      admin_user = user_fixture()
+      admin = admin_fixture(%{user: admin_user, role: :admin})
+      package = deleted_owner_package_fixture(%{name: "orphan_transfer"})
+      new_owner = user_fixture()
+
+      assert {:ok, transferred} = Packages.transfer_package(admin, package, new_owner)
+      assert transferred.user_id == new_owner.id
+      assert Luxpkgs.Repo.get!(Package, package.id).user_id == new_owner.id
+
+      assert [event] =
+               Luxpkgs.Audit.list_events(target_type: "package", target_id: package.id)
+
+      assert event.action == "package.transferred"
+      assert event.actor_label == admin_user.username
+      assert event.metadata["to_id"] == new_owner.id
+      assert event.metadata["from_id"] == package.user_id
+    end
+
+    test "moderators cannot transfer packages" do
+      package = deleted_owner_package_fixture()
+      moderator = admin_fixture(%{role: :moderator})
+      new_owner = user_fixture()
+
+      assert {:error, :insufficient_permissions} =
+               Packages.transfer_package(moderator, package, new_owner)
+    end
+
+    test "only packages owned by the deleted account can be transferred" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+      new_owner = user_fixture()
+
+      assert {:error, :invalid_owner} = Packages.transfer_package(admin, package, new_owner)
+    end
+
+    test "the deleted sentinel cannot be the new owner" do
+      package = deleted_owner_package_fixture()
+      admin = admin_fixture(%{role: :admin})
+      sentinel = Luxpkgs.Accounts.deleted_user()
+
+      assert {:error, :invalid_target} = Packages.transfer_package(admin, package, sentinel)
+    end
+
+    test "suspended users cannot receive packages" do
+      package = deleted_owner_package_fixture()
+      admin = admin_fixture(%{role: :admin})
+      target = user_fixture()
+      assert {:ok, suspended, _tokens} = Luxpkgs.Accounts.suspend_user(admin, target, "Spam")
+
+      assert {:error, :suspended_target} = Packages.transfer_package(admin, package, suspended)
     end
   end
 end

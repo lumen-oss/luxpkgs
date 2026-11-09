@@ -119,11 +119,10 @@
           <%= for package <- @packages do %>
             <.package
               name={package.name}
-              version={
-                List.last(package.releases) && Map.get(List.last(package.releases), :version)
-              }
+              version={Luxpkgs.Packages.latest_version(package)}
               download_count={Enum.sum(for(r <- package.releases, do: r.download_count))}
               description={package.summary || ""}
+              status={package.status}
             />
           <% end %>
         </div>

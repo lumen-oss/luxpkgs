@@ -43,6 +43,28 @@ const Typewriter = {
   }
 };
 
+const ReleaseNavigation = {
+  mounted() {
+    this.handler = (event) => {
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+
+      const active = document.activeElement;
+      const tag = active?.tagName;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || active?.isContentEditable) return;
+
+      event.preventDefault();
+      this.pushEvent("navigate_release", {
+        direction: event.key === "ArrowLeft" ? "prev" : "next",
+      });
+    };
+
+    window.addEventListener("keydown", this.handler);
+  },
+  destroyed() {
+    window.removeEventListener("keydown", this.handler);
+  },
+};
+
 const Dialog = {
   mounted() {
     this.reset();
@@ -60,4 +82,5 @@ export default Hooks = {
   Typewriter: Typewriter,
   CharacterCounter: CharacterCounter,
   Dialog: Dialog,
+  ReleaseNavigation: ReleaseNavigation,
 }

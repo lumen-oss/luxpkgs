@@ -8,6 +8,9 @@ defmodule Luxpkgs.Accounts do
   alias Luxpkgs.Repo
 
   alias Luxpkgs.Accounts.{User, UserToken}
+  alias Luxpkgs.Admin
+  alias Luxpkgs.Admin.Admin, as: AdminRow
+  alias Luxpkgs.Audit
   alias Luxpkgs.Packages.Package
 
   ## Database getters
@@ -58,6 +61,81 @@ defmodule Luxpkgs.Accounts do
 
   def user_count do
     Repo.one(from(u in User, select: count(u.id)))
+  end
+
+  @doc """
+  Returns a paginated list of users for the admin area.
+  """
+  def list_users(opts \\ []) do
+    page_size = 20
+    page = max(Keyword.get(opts, :page, 1), 1)
+    search = opts |> Keyword.get(:search, "") |> to_string() |> String.trim()
+
+    query =
+      User
+      |> filter_user_sentinel(Keyword.get(opts, :include_deleted, false))
+      |> filter_user_status(Keyword.get(opts, :status, "all"))
+      |> filter_user_role(Keyword.get(opts, :role, "all"))
+      |> filter_user_search(search)
+
+    total_count = Repo.aggregate(query, :count, :id)
+
+    users =
+      query
+      |> order_by([u], desc: u.inserted_at, desc: u.id)
+      |> limit(^page_size)
+      |> offset(^((page - 1) * page_size))
+      |> preload(:admin)
+      |> Repo.all()
+
+    %{
+      users: users,
+      total_count: total_count,
+      page: page,
+      page_size: page_size,
+      total_pages: max(ceil(total_count / page_size), 1)
+    }
+  end
+
+  defp filter_user_sentinel(query, true), do: query
+  defp filter_user_sentinel(query, false), do: where(query, [u], u.provider != "deleted")
+
+  defp filter_user_status(query, "active"), do: where(query, [u], is_nil(u.suspended_at))
+  defp filter_user_status(query, "suspended"), do: where(query, [u], not is_nil(u.suspended_at))
+  defp filter_user_status(query, _status), do: query
+
+  defp filter_user_role(query, "admin") do
+    query
+    |> join(:inner, [u], a in AdminRow, on: a.user_id == u.id)
+    |> where([_u, a], a.active == true and a.role == :admin)
+  end
+
+  defp filter_user_role(query, "moderator") do
+    query
+    |> join(:inner, [u], a in AdminRow, on: a.user_id == u.id)
+    |> where([_u, a], a.active == true and a.role == :moderator)
+  end
+
+  defp filter_user_role(query, "none") do
+    query
+    |> join(:left, [u], a in AdminRow, on: a.user_id == u.id and a.active == true)
+    |> where([_u, a], is_nil(a.id))
+  end
+
+  defp filter_user_role(query, _role), do: query
+
+  defp filter_user_search(query, "") do
+    query
+  end
+
+  defp filter_user_search(query, search) do
+    pattern = "%#{search}%"
+
+    where(
+      query,
+      [u],
+      ilike(u.username, ^pattern) or ilike(u.email, ^pattern) or ilike(u.aka, ^pattern)
+    )
   end
 
   @doc """
@@ -155,6 +233,103 @@ defmodule Luxpkgs.Accounts do
   def delete_user_session_token(token) do
     Repo.delete_all(UserToken.by_token_and_context_query(token, "session"))
     :ok
+  end
+
+  ## Suspension
+
+  @doc """
+  Suspends a user, revokes their session tokens, and deactivates their admin row.
+
+  Returns the revoked tokens so callers can disconnect live sockets.
+  """
+  def suspend_user(%AdminRow{} = actor, %User{} = user, reason) do
+    changeset = User.suspend_changeset(user, %{suspension_reason: reason})
+    actor = Repo.preload(actor, :user)
+
+    with :ok <- ensure_not_self(actor, user),
+         :ok <- ensure_not_last_admin(user),
+         :ok <- validate_changeset(changeset) do
+      tokens = list_user_tokens(user)
+
+      Multi.new()
+      |> Multi.update(:user, changeset)
+      |> Multi.update_all(
+        :admin,
+        from(a in AdminRow, where: a.user_id == ^user.id),
+        set: [active: false]
+      )
+      |> Multi.delete_all(:tokens, from(t in UserToken, where: t.user_id == ^user.id))
+      |> Multi.insert(
+        :audit,
+        Audit.changeset(
+          suspension_audit_attrs("user.suspended", actor, user, %{"reason" => reason})
+        )
+      )
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{user: user, audit: event}} ->
+          Audit.broadcast(event)
+          {:ok, user, tokens}
+
+        {:error, _step, reason, _changes} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Clears a user's suspension. An inactive admin row stays inactive.
+  """
+  def unsuspend_user(%AdminRow{} = actor, %User{} = user) do
+    actor = Repo.preload(actor, :user)
+
+    Multi.new()
+    |> Multi.update(:user, User.unsuspend_changeset(user))
+    |> Multi.insert(
+      :audit,
+      Audit.changeset(suspension_audit_attrs("user.unsuspended", actor, user, %{}))
+    )
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: user, audit: event}} ->
+        Audit.broadcast(event)
+        {:ok, user}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
+  defp ensure_not_self(%AdminRow{user_id: id}, %User{id: id}), do: {:error, :self_suspend}
+  defp ensure_not_self(_actor, _user), do: :ok
+
+  # shortcut: the last-admin count is read before the transaction, so two concurrent
+  # suspensions could both pass it; add a row lock if that becomes possible.
+  defp ensure_not_last_admin(user) do
+    case Admin.get_admin_for_user(user) do
+      %AdminRow{active: true, role: :admin} ->
+        if Admin.active_admin_count() <= 1, do: {:error, :last_admin}, else: :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp validate_changeset(changeset) do
+    if changeset.valid?, do: :ok, else: {:error, changeset}
+  end
+
+  defp suspension_audit_attrs(action, actor, user, metadata) do
+    %{
+      type: :user,
+      action: action,
+      actor_admin_id: actor.id,
+      actor_label: actor.user.username || actor.user.email,
+      target_type: "user",
+      target_id: user.id,
+      target_label: user.username || user.email,
+      metadata: metadata
+    }
   end
 
   ## Account deletion

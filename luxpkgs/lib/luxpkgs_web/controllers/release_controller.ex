@@ -151,7 +151,7 @@ defmodule LuxpkgsWeb.ReleaseController do
   )
 
   def show(conn, %{"id" => id}) do
-    case Packages.get_release(id) do
+    case Packages.get_public_release(id) do
       %Release{rockspec_path: rockspec_path} = release
       when is_binary(rockspec_path) ->
         safe_rockspec_path = Path.basename(rockspec_path)

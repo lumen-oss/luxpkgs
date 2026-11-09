@@ -4,6 +4,7 @@ defmodule LuxpkgsWeb.NavBar do
   alias Phoenix.LiveView.JS
 
   alias Luxpkgs.Accounts.User
+  alias Luxpkgs.Admin
 
   def navbar(%{current_scope: _} = assigns) do
     ~H"""
@@ -52,6 +53,10 @@ defmodule LuxpkgsWeb.NavBar do
         :unique_username,
         if(current_scope, do: User.unique_username(current_scope.user), else: nil)
       )
+      |> assign(
+        :admin?,
+        current_scope && not is_nil(Admin.get_active_admin_for_user(current_scope.user))
+      )
 
     ~H"""
     <div class="dropdown dropdown-end w-full sm:w-auto">
@@ -98,6 +103,9 @@ defmodule LuxpkgsWeb.NavBar do
         </li>
         <li>
           <.link navigate={~p"/keys"}>API keys</.link>
+        </li>
+        <li :if={@admin?}>
+          <.link navigate={~p"/admin"}>Admin panel</.link>
         </li>
         <hr class="text-base-300 mt-1 mb-1" />
         <li>

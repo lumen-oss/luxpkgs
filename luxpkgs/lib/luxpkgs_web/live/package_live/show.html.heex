@@ -2,10 +2,25 @@
   <%= if @not_found do %>
     <.not_found
       title="Package not found"
-      message="The package you are looking for does not exist or was removed."
+      message="The package you are looking for does not exist or is unavailable."
     />
   <% else %>
     <div class="min-h-screen bg-base-100">
+      <%= if @package.status != :active do %>
+        <div class="border-b border-warning/30 bg-warning/10">
+          <div class="page-container max-w-6xl py-4">
+            <div class="alert alert-warning">
+              <.icon name={:shield_check} type={:outline} class="w-5 h-5" />
+              <div>
+                <h2 class="font-semibold">This package is {to_string(@package.status)}.</h2>
+                <p :if={@package.moderation_note} class="text-sm">
+                  {@package.moderation_note}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      <% end %>
       <div class="bg-base-200 border-b border-base-300">
         <div class="page-container max-w-6xl py-6 lg:py-8">
           <div class="mb-4 lg:mb-6">
@@ -19,9 +34,29 @@
 
           <div class="flex flex-col gap-4 lg:gap-6">
             <div class="flex-1">
-              <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-base-content mb-3 lg:mb-4">
-                {@package.name}
-              </h1>
+              <div class="mb-3 flex flex-wrap items-center gap-2 lg:mb-4 lg:gap-3">
+                <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-base-content">
+                  {@package.name}
+                </h1>
+                <button
+                  :if={@report_state in [:form, :anonymous, :totp]}
+                  type="button"
+                  onclick="report_package_modal.showModal()"
+                  class="btn btn-ghost btn-sm gap-1.5 px-2 text-base-content/70 hover:text-base-content"
+                  aria-label="Report package"
+                  title="Report package"
+                >
+                  <.icon name={:flag} type={:outline} class="w-4 h-4" />
+                  <span class="hidden sm:inline">Report</span>
+                </button>
+                <span
+                  :if={@report_state == :reported}
+                  class="badge badge-ghost badge-sm gap-1"
+                  title="You already have an open report for this package."
+                >
+                  <.icon name={:flag} type={:outline} class="w-3 h-3" /> Reported
+                </span>
+              </div>
               <p class="text-base-content/80 text-base lg:text-lg leading-relaxed">
                 {@package.summary || "No description available"}
               </p>
@@ -31,17 +66,18 @@
               <div class="text-center sm:text-left">
                 <div class="text-sm text-base-content/70 mb-1">Latest Release</div>
                 <div class="font-mono font-semibold text-primary text-lg">
-                  {latest_version(@package.releases)}
+                  {latest_version(@package)}
                 </div>
                 <div class="text-xs text-base-content/70 mt-1">
                   {format_date(
-                    (List.last(@package.releases) || %{inserted_at: @package.inserted_at})
+                    (latest_release(@package) || %{inserted_at: @package.inserted_at})
                     |> Map.get(:inserted_at)
                   )}
                 </div>
               </div>
 
               <.link
+                :if={@package.status == :active and latest_release(@package)}
                 href={~p"/api/download/#{@package.name}"}
                 class="btn btn-primary w-full sm:w-auto"
               >
@@ -83,12 +119,21 @@
                 <%= for release <- Enum.reverse(@package.releases) do %>
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-3 lg:py-4 px-3 lg:px-4 bg-base-100 rounded-box border border-base-300 hover:border-primary/30 transition-colors">
                     <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                      <.link
-                        href={~p"/api/download/#{@package.name}/#{to_string(release.version)}"}
-                        class="font-mono text-base font-semibold text-primary hover:text-primary/80"
-                      >
-                        v{to_string(release.version)}
-                      </.link>
+                      <%= if @package.status == :active do %>
+                        <.link
+                          href={~p"/api/download/#{@package.name}/#{to_string(release.version)}"}
+                          class="font-mono text-base font-semibold text-primary hover:text-primary/80"
+                        >
+                          v{to_string(release.version)}
+                        </.link>
+                      <% else %>
+                        <span class="font-mono text-base font-semibold text-base-content/70">
+                          v{to_string(release.version)}
+                        </span>
+                      <% end %>
+                      <span :if={release.yanked_at} class="badge badge-warning badge-sm">
+                        Yanked
+                      </span>
                       <span class="text-sm text-base-content/70">
                         {format_date(release.inserted_at)}
                       </span>
@@ -97,7 +142,28 @@
                       <span class="text-sm text-base-content/70">
                         {format_count(release.download_count)} downloads
                       </span>
+                      <%= if @owner do %>
+                        <button
+                          :if={release.yanked_at}
+                          type="button"
+                          phx-click="unyank_release"
+                          phx-value-id={release.id}
+                          class="btn btn-xs btn-soft"
+                        >
+                          Unyank
+                        </button>
+                        <button
+                          :if={!release.yanked_at}
+                          type="button"
+                          phx-click="yank_release"
+                          phx-value-id={release.id}
+                          class="btn btn-xs btn-soft btn-warning"
+                        >
+                          Yank
+                        </button>
+                      <% end %>
                       <.link
+                        :if={@package.status == :active}
                         href={~p"/api/download/#{@package.name}/#{to_string(release.version)}"}
                         class="btn btn-sm btn-soft btn-primary"
                       >
@@ -213,5 +279,115 @@
         </div>
       </div>
     </div>
+
+    <dialog
+      :if={@report_state in [:form, :anonymous, :totp]}
+      id="report_package_modal"
+      class="modal"
+      phx-update="ignore"
+      phx-hook="Dialog"
+      aria-labelledby="report_package_modal_title"
+    >
+      <div class="modal-box max-w-lg">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2
+              id="report_package_modal_title"
+              class="flex items-center gap-2 text-lg font-semibold"
+            >
+              <.icon name={:flag} type={:outline} class="w-5 h-5 text-warning" /> Report package
+            </h2>
+            <p class="mt-1 text-sm text-base-content/70">
+              Reports are reviewed by moderators. Do not use this to contact the author.
+            </p>
+          </div>
+          <button
+            type="button"
+            onclick="report_package_modal.close()"
+            class="btn btn-ghost btn-sm btn-square"
+            aria-label="Close report dialog"
+          >
+            <.icon name={:x} type={:outline} class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div :if={@report_state == :anonymous} class="mt-5 space-y-4">
+          <p class="text-sm text-base-content/80">
+            Sign in to report this package to the moderators.
+          </p>
+          <.link navigate={~p"/login"} class="btn btn-sm btn-primary">Sign in</.link>
+        </div>
+
+        <div :if={@report_state == :totp} class="mt-5 space-y-4">
+          <p class="text-sm text-base-content/80">
+            Enable two-factor authentication before reporting packages.
+          </p>
+          <.link navigate={~p"/setup-totp"} class="btn btn-sm btn-primary">
+            Set up two-factor authentication
+          </.link>
+        </div>
+
+        <form :if={@report_state == :form} phx-submit="report_package" class="mt-5 space-y-4">
+          <div>
+            <label for="report-reason" class="mb-1 block text-sm font-medium">Reason</label>
+            <select
+              id="report-reason"
+              name="reason"
+              required
+              class="select select-bordered w-full bg-base-100"
+            >
+              <option value="">Choose a reason</option>
+              <option value="malicious">Security or malicious</option>
+              <option value="spam">Spam or inappropriate content</option>
+              <option value="copyright">Copyright violation</option>
+              <option value="broken">Broken package</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="mb-1 flex items-center justify-between gap-3">
+              <label for="report-details" class="text-sm font-medium">
+                Details <span class="font-normal text-base-content/60">(optional)</span>
+              </label>
+              <span
+                id="report-details-count"
+                aria-live="polite"
+                class="text-xs text-base-content/60"
+              >
+                0/2000
+              </span>
+            </div>
+            <textarea
+              id="report-details"
+              name="details"
+              maxlength="2000"
+              rows="4"
+              phx-hook="CharacterCounter"
+              data-counter-target="report-details-count"
+              data-counter-max="2000"
+              placeholder="Add anything that helps moderators review this report."
+              class="textarea textarea-bordered w-full bg-base-100"
+            ></textarea>
+          </div>
+
+          <div class="modal-action">
+            <button
+              type="button"
+              onclick="report_package_modal.close()"
+              class="btn btn-ghost"
+            >
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-warning" phx-disable-with="Submitting...">
+              Submit report
+            </button>
+          </div>
+        </form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
   <% end %>
 </Layouts.app>

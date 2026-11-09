@@ -25,6 +25,7 @@ defmodule LuxpkgsWeb.Router do
     plug :accepts, ["json"]
     plug Pipelines.ApiPipeline
     plug :fetch_current_api_token_for_user
+    plug :require_api_scope
     plug OpenApiSpex.Plug.PutApiSpec, module: LuxpkgsWeb.ApiSpec
     plug LuxpkgsWeb.Plugs.RateLimiter, tier: :general
   end
@@ -62,6 +63,31 @@ defmodule LuxpkgsWeb.Router do
     end
 
     delete "/logout", UserAuthController, :log_out_user
+  end
+
+  scope "/admin", LuxpkgsWeb do
+    pipe_through [:browser, :require_authenticated_user]
+
+    live_session :admin,
+      on_mount: [
+        {LuxpkgsWeb.UserAuth, :mount_current_scope},
+        {LuxpkgsWeb.AdminAuth, :require_admin}
+      ] do
+      live "/", AdminLive.Dashboard, :index
+      live "/packages", AdminLive.Packages, :index
+      live "/packages/:id", AdminLive.Package, :show
+      live "/reports", AdminLive.Reports, :index
+      live "/users", AdminLive.Users, :index
+      live "/users/:id", AdminLive.User, :show
+      live "/audit", AdminLive.Audit, :index
+    end
+  end
+
+  scope "/admin", LuxpkgsWeb do
+    pipe_through [:browser, :totp_verification, :require_authenticated_user]
+
+    get "/verify", AdminTotpController, :new
+    post "/verify", AdminTotpController, :create
   end
 
   scope "/auth", LuxpkgsWeb do

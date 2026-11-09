@@ -263,7 +263,7 @@ defmodule LuxpkgsWeb.PackageController do
         {:error, :not_found}
 
       package ->
-        case List.last(package.releases) do
+        case Packages.latest_release(package) do
           nil ->
             {:error, :not_found}
 

@@ -148,6 +148,11 @@ defmodule LuxpkgsWeb.IntegrationWorkflowTest do
 
       assert %{"id" => release_id} = json_response(upload_conn, 201)["data"]
 
+      assert Enum.any?(Luxpkgs.Audit.list_events(), fn event ->
+               event.action == "release.published" and event.target_id == release_id and
+                 event.metadata["version"] == "1.0.0-1"
+             end)
+
       dl_conn = fresh_conn()
       dl_conn = get(dl_conn, ~p"/api/releases/#{release_id}")
       assert dl_conn.status == 200

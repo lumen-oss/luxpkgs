@@ -8,6 +8,7 @@ defmodule Luxpkgs.Packages.Release do
     field :rockspec_path, :string
     field :rockspec, :any, virtual: true
     field :download_count, :integer, default: 0
+    field :yanked_at, :utc_datetime
     belongs_to :package, Luxpkgs.Packages.Package
 
     timestamps(type: :utc_datetime)

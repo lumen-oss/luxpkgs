@@ -20,3 +20,6 @@ push.sh
 /.expert
 
 /prod.tar
+
+# Misc
+/.playwright-mcp

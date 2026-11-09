@@ -40,8 +40,23 @@ defmodule Luxpkgs.PackagesFixtures do
       version: version,
       rockspec_path: "#{safe_name}-#{safe_version}.rockspec",
       package_id: package.id,
-      download_count: 0
+      download_count: 0,
+      yanked_at: attrs[:yanked_at]
     })
     |> Luxpkgs.Repo.insert!()
+  end
+
+  @doc """
+  Creates a package owned by the deleted sentinel account.
+  """
+  def deleted_owner_package_fixture(attrs \\ %{}) do
+    owner = Luxpkgs.AccountsFixtures.user_fixture()
+    scope = Luxpkgs.Accounts.Scope.for_user(owner)
+    package = package_fixture(scope, attrs)
+    sentinel = Luxpkgs.Accounts.deleted_user()
+
+    package
+    |> Ecto.Changeset.change(user_id: sentinel.id)
+    |> Luxpkgs.Repo.update!()
   end
 end

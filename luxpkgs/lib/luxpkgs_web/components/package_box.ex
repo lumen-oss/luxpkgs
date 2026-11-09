@@ -5,6 +5,7 @@ defmodule LuxpkgsWeb.PackageBox do
   attr :description, :string, default: ""
   attr :version, :string
   attr :download_count, :integer, default: 0
+  attr :status, :atom, default: :active
 
   def package(assigns) do
     ~H"""
@@ -15,9 +16,13 @@ defmodule LuxpkgsWeb.PackageBox do
       <div class="h-full flex flex-col bg-base-100 border border-base-300 rounded-box hover:border-primary/40 transition-colors duration-200 p-6">
         <div class="space-y-4">
           <div class="flex items-start justify-between">
-            <h2 class="text-lg font-semibold text-base-content group-hover:text-primary transition-colors">
-              {@name}
-            </h2>
+            <div class="flex items-center gap-2">
+              <h2 class="text-lg font-semibold text-base-content group-hover:text-primary transition-colors">
+                {@name}
+              </h2>
+              <span :if={@status == :hidden} class="badge badge-warning badge-sm">Hidden</span>
+              <span :if={@status == :removed} class="badge badge-error badge-sm">Removed</span>
+            </div>
             <div class="bg-primary/10 text-primary border border-primary/20 px-2 py-1 text-xs font-mono">
               {if @version, do: "v#{@version}", else: "—"}
             </div>
@@ -39,10 +44,11 @@ defmodule LuxpkgsWeb.PackageBox do
     """
   end
 
-  defp latest_version([]), do: nil
-
   defp latest_version(releases) do
-    releases |> List.last() |> Map.get(:version)
+    releases
+    |> Enum.reject(& &1.yanked_at)
+    |> List.last()
+    |> then(&(&1 && Map.get(&1, :version)))
   end
 
   attr :packages, :map, required: true
@@ -53,7 +59,7 @@ defmodule LuxpkgsWeb.PackageBox do
     <div class="py-16 bg-base-200">
       <div class="page-container max-w-7xl">
         <!-- Featured Packages Section -->
-        <div class="mb-16">
+        <div id="featured-packages" class="mb-16">
           <div class="text-center mb-12">
             <div class="flex items-center justify-center space-x-4 mb-6">
               <div class="w-8 h-px bg-primary"></div>
@@ -61,7 +67,7 @@ defmodule LuxpkgsWeb.PackageBox do
               <div class="w-8 h-px bg-primary"></div>
             </div>
             <p class="text-base-content/70 max-w-2xl mx-auto">
-              Discover the most popular and well-maintained packages in our ecosystem
+              Discover the most popular packages in our ecosystem
             </p>
           </div>
 
@@ -78,7 +84,7 @@ defmodule LuxpkgsWeb.PackageBox do
         </div>
 
         <!-- Most Recent Updates Section -->
-        <div class="mb-16">
+        <div id="recent-updates" class="mb-16">
           <div class="text-center mb-12">
             <div class="flex items-center justify-center space-x-4 mb-6">
               <div class="w-8 h-px bg-secondary"></div>

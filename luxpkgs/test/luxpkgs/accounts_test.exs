@@ -4,7 +4,11 @@ defmodule Luxpkgs.AccountsTest do
   alias Luxpkgs.Accounts
 
   import Luxpkgs.AccountsFixtures
+  import Luxpkgs.AdminFixtures
   alias Luxpkgs.Accounts.{User, UserToken}
+  alias Luxpkgs.Admin
+  alias Luxpkgs.Admin.Admin, as: AdminRow
+  alias Luxpkgs.Audit
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do
@@ -258,6 +262,144 @@ defmodule Luxpkgs.AccountsTest do
 
     test "the deleted user is created only once" do
       assert Accounts.deleted_user().id == Accounts.deleted_user().id
+    end
+  end
+
+  describe "suspend_user/3" do
+    test "sets the suspension fields" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+
+      assert {:ok, suspended, []} = Accounts.suspend_user(actor, user, "Spam")
+
+      assert suspended.suspended_at
+      assert suspended.suspension_reason == "Spam"
+      assert Accounts.get_user(user.id).suspension_reason == "Spam"
+    end
+
+    test "requires a reason" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               Accounts.suspend_user(actor, user, "")
+
+      assert errors[:suspension_reason]
+      refute Accounts.get_user(user.id).suspended_at
+    end
+
+    test "revokes session tokens and returns them" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      token = Accounts.generate_user_session_token(user)
+
+      assert {:ok, _suspended, [%UserToken{token: ^token}]} =
+               Accounts.suspend_user(actor, user, "Spam")
+
+      refute Accounts.get_user_by_session_token(token)
+      refute Repo.get_by(UserToken, token: token)
+    end
+
+    test "deactivates the user's admin row" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      _admin = admin_fixture(%{user: user, role: :admin})
+
+      assert {:ok, _suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+      refute Repo.get_by(AdminRow, user_id: user.id).active
+    end
+
+    test "writes an audit event" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+
+      assert {:ok, _suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+
+      assert [event] = Audit.list_events(action: "user.suspended", target_type: "user")
+
+      assert event.actor_admin_id == actor.id
+      assert event.target_id == user.id
+      assert event.metadata["reason"] == "Spam"
+    end
+
+    test "returns tokens that disconnect live sockets" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      token = Accounts.generate_user_session_token(user)
+      topic = "users_sessions:#{Base.url_encode64(token)}"
+      LuxpkgsWeb.Endpoint.subscribe(topic)
+
+      assert {:ok, _suspended, tokens} = Accounts.suspend_user(actor, user, "Spam")
+      LuxpkgsWeb.UserAuth.disconnect_sessions(tokens)
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "disconnect", topic: ^topic}
+    end
+
+    test "rejects suspending yourself" do
+      actor = admin_fixture(%{role: :admin})
+
+      assert {:error, :self_suspend} =
+               Accounts.suspend_user(actor, Accounts.get_user(actor.user_id), "Spam")
+    end
+
+    test "rejects suspending the last active admin" do
+      actor = admin_fixture(%{role: :admin, active: false})
+      user = user_fixture()
+      _admin = admin_fixture(%{user: user, role: :admin})
+      _moderator = admin_fixture(%{role: :moderator})
+
+      assert Admin.active_admin_count() == 1
+      assert {:error, :last_admin} = Accounts.suspend_user(actor, user, "Spam")
+    end
+
+    test "allows suspending one of several active admins" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      _admin = admin_fixture(%{user: user, role: :admin})
+
+      assert {:ok, _suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+    end
+  end
+
+  describe "unsuspend_user/2" do
+    test "clears the suspension fields" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      {:ok, suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+
+      assert {:ok, unsuspended} = Accounts.unsuspend_user(actor, suspended)
+      assert is_nil(unsuspended.suspended_at)
+      assert is_nil(unsuspended.suspension_reason)
+    end
+
+    test "keeps the admin row inactive" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      _admin = admin_fixture(%{user: user, role: :admin})
+      {:ok, suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+
+      assert {:ok, _unsuspended} = Accounts.unsuspend_user(actor, suspended)
+      refute Repo.get_by(AdminRow, user_id: user.id).active
+    end
+
+    test "writes an audit event" do
+      actor = admin_fixture(%{role: :admin})
+      user = user_fixture()
+      {:ok, suspended, _tokens} = Accounts.suspend_user(actor, user, "Spam")
+
+      assert {:ok, _unsuspended} = Accounts.unsuspend_user(actor, suspended)
+      assert [event] = Audit.list_events(action: "user.unsuspended")
+      assert event.target_id == user.id
+    end
+  end
+
+  describe "get_admin_for_user/1" do
+    test "returns inactive admin rows" do
+      user = user_fixture()
+      admin = admin_fixture(%{user: user, role: :admin, active: false})
+
+      assert %{id: id, active: false} = Admin.get_admin_for_user(user)
+      assert id == admin.id
     end
   end
 end

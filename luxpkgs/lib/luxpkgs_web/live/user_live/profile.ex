@@ -29,16 +29,20 @@ defmodule LuxpkgsWeb.UserLive.Profile do
 
   def handle_params(params, _url, socket) do
     user = socket.assigns.user
+    include_hidden = owner_view?(socket, user)
     flop_params = convert_to_flop_params(user.id, params)
 
-    case Packages.list_packages_paginated(flop_params) do
+    case Packages.list_packages_paginated(flop_params, include_hidden: include_hidden) do
       {:ok, {packages, meta}} ->
         {:noreply,
          socket
          |> assign(:packages, packages)
          |> assign(:meta, meta)
          |> assign(:params, params)
-         |> assign(:total_downloads, Packages.total_downloads_by_user(user))}
+         |> assign(
+           :total_downloads,
+           Packages.total_downloads_by_user(user, include_hidden: include_hidden)
+         )}
 
       {:error, meta} ->
         {:noreply,
@@ -79,6 +83,13 @@ defmodule LuxpkgsWeb.UserLive.Profile do
   end
 
   defp maybe_add_page(flop_params, _params), do: flop_params
+
+  defp owner_view?(socket, user) do
+    case socket.assigns[:current_scope] do
+      %{user: %{id: id}} -> id == user.id
+      _ -> false
+    end
+  end
 
   defp member_since_date(%DateTime{} = date), do: Calendar.strftime(date, "%B %Y")
   defp member_since_date(%NaiveDateTime{} = date), do: Calendar.strftime(date, "%B %Y")
