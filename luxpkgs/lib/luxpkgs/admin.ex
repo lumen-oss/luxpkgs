@@ -17,7 +17,8 @@ defmodule Luxpkgs.Admin do
     with {:ok, user_id} <- normalize_user_id(user_id),
          {:ok, role} <- normalize_role(role),
          %User{} = user <- Accounts.get_user(user_id),
-         :ok <- ensure_not_deleted(user) do
+         :ok <- ensure_not_deleted(user),
+         :ok <- ensure_not_suspended(user) do
       grant(user, role)
     else
       nil -> {:error, :user_not_found}
@@ -199,4 +200,8 @@ defmodule Luxpkgs.Admin do
 
   defp ensure_not_deleted(%User{provider: "deleted"}), do: {:error, :deleted_user}
   defp ensure_not_deleted(%User{}), do: :ok
+
+  defp ensure_not_suspended(%User{} = user) do
+    if User.suspended?(user), do: {:error, :suspended_user}, else: :ok
+  end
 end

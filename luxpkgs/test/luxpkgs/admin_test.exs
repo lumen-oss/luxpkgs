@@ -2,6 +2,7 @@ defmodule Luxpkgs.AdminTest do
   use Luxpkgs.DataCase, async: true
 
   alias Luxpkgs.Accounts
+  alias Luxpkgs.Accounts.User
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRecord
   alias Luxpkgs.Audit
@@ -41,6 +42,33 @@ defmodule Luxpkgs.AdminTest do
       deleted = Accounts.deleted_user()
 
       assert {:error, :deleted_user} = Admin.grant_by_user_id(deleted.id, :admin)
+    end
+
+    test "rejects suspended users without creating admin access" do
+      user = user_fixture()
+
+      {:ok, suspended} =
+        user
+        |> User.suspend_changeset(%{suspension_reason: "Policy violation"})
+        |> Repo.update()
+
+      assert {:error, :suspended_user} = Admin.grant_by_user_id(suspended.id, :admin)
+      assert Admin.get_admin_for_user(suspended) == nil
+      assert Repo.aggregate(Audit.Event, :count, :id) == 0
+    end
+
+    test "does not reactivate a revoked admin who is suspended" do
+      user = user_fixture()
+      assert {:ok, _admin} = Admin.grant_by_user_id(user.id, :moderator)
+      assert {:ok, _admin} = Admin.revoke_by_user_id(user.id)
+
+      {:ok, suspended} =
+        user
+        |> User.suspend_changeset(%{suspension_reason: "Policy violation"})
+        |> Repo.update()
+
+      assert {:error, :suspended_user} = Admin.grant_by_user_id(suspended.id, :admin)
+      refute Repo.get_by(AdminRecord, user_id: user.id).active
     end
 
     test "rejects invalid user ids" do

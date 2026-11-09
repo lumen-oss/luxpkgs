@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Luxpkgs.AdminTest do
   import ExUnit.CaptureIO
   import Luxpkgs.AccountsFixtures
 
+  alias Luxpkgs.Accounts.User
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRecord
   alias Luxpkgs.Audit
@@ -68,6 +69,21 @@ defmodule Mix.Tasks.Luxpkgs.AdminTest do
       assert_raise Mix.Error, ~r/No user exists with that ID/, fn ->
         run_grant(999_999, "admin")
       end
+    end
+
+    test "rejects suspended users" do
+      user = user_fixture()
+
+      {:ok, suspended} =
+        user
+        |> User.suspend_changeset(%{suspension_reason: "Policy violation"})
+        |> Repo.update()
+
+      assert_raise Mix.Error, ~r/Cannot grant admin access to a suspended user/, fn ->
+        run_grant(suspended.id, "admin")
+      end
+
+      assert Admin.get_active_admin_for_user(suspended) == nil
     end
   end
 

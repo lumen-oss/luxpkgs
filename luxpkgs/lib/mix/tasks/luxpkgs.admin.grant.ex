@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Luxpkgs.Admin.Grant do
       mix luxpkgs.admin.grant --user-id 42 --role moderator
 
   The user must already exist. This task never creates users or admin
-  accounts.
+  accounts. Suspended users must be unsuspended first.
   """
 
   @impl Mix.Task
@@ -53,6 +53,9 @@ defmodule Mix.Tasks.Luxpkgs.Admin.Grant do
 
   defp error_message(:deleted_user),
     do: "The deleted user sentinel cannot be an admin."
+
+  defp error_message(:suspended_user),
+    do: "Cannot grant admin access to a suspended user. Unsuspend the user first."
 
   defp error_message(reason),
     do: "Could not grant admin access: #{inspect(reason)}"
