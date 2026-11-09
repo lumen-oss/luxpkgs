@@ -18,6 +18,7 @@ defmodule Luxpkgs.Audit.Catalog do
         %{action: "package.restored", label: "restored"},
         %{action: "package.featured", label: "featured"},
         %{action: "package.unfeatured", label: "unfeatured"},
+        %{action: "package.transferred", label: "transferred"},
         %{action: "release.published", label: "published"},
         %{action: "release.yanked", label: "yanked"},
         %{action: "release.unyanked", label: "unyanked"}

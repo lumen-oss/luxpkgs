@@ -198,4 +198,78 @@ defmodule LuxpkgsWeb.AdminLive.PackageTest do
 
     assert Repo.get!(Package, package.id).featured_at
   end
+
+  test "shows the transfer panel only for packages left by a deleted account", %{conn: conn} do
+    owner = user_fixture()
+    owned = package_fixture(user_scope_fixture(owner), %{name: "owned_view"})
+    orphaned = deleted_owner_package_fixture(%{name: "orphaned_view"})
+    conn = admin_conn(conn, :admin)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/packages/#{owned.id}")
+    refute has_element?(lv, "#transfer-package")
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/packages/#{orphaned.id}")
+    assert has_element?(lv, "#transfer-package")
+    assert has_element?(lv, "#transfer-package-form")
+  end
+
+  test "searches for a user and transfers the package", %{conn: conn} do
+    orphaned = deleted_owner_package_fixture(%{name: "transfer_view"})
+    new_owner = user_fixture()
+
+    {:ok, lv, _html} = live(admin_conn(conn, :admin), ~p"/admin/packages/#{orphaned.id}")
+
+    html =
+      lv
+      |> element("form#transfer-package-form")
+      |> render_change(%{"owner_search" => new_owner.username})
+
+    assert html =~ new_owner.email
+    assert has_element?(lv, "#owner-option-#{new_owner.id}")
+
+    html =
+      lv
+      |> element("form#transfer-package-form")
+      |> render_submit(%{"owner_id" => to_string(new_owner.id)})
+
+    assert html =~ "Ownership transferred to #{new_owner.username}."
+    assert Repo.get!(Package, orphaned.id).user_id == new_owner.id
+    refute has_element?(lv, "#transfer-package")
+
+    assert [event] =
+             Luxpkgs.Audit.list_events(target_type: "package", target_id: orphaned.id)
+
+    assert event.action == "package.transferred"
+    assert event.metadata["to_id"] == new_owner.id
+  end
+
+  test "shows an empty state when no active user matches", %{conn: conn} do
+    orphaned = deleted_owner_package_fixture(%{name: "no_match_view"})
+
+    {:ok, lv, _html} = live(admin_conn(conn, :admin), ~p"/admin/packages/#{orphaned.id}")
+
+    html =
+      lv
+      |> element("form#transfer-package-form")
+      |> render_change(%{
+        "owner_search" => "nobody_matches_#{System.unique_integer([:positive])}"
+      })
+
+    assert html =~ "No active users found."
+  end
+
+  test "transferring requires recent TOTP verification", %{conn: conn} do
+    orphaned = deleted_owner_package_fixture(%{name: "fresh_transfer_view"})
+    new_owner = user_fixture()
+    conn = admin_conn(conn, :admin, System.os_time(:second) - 601)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/packages/#{orphaned.id}")
+
+    assert {:error, {:redirect, %{to: "/admin/verify"}}} =
+             lv
+             |> element("form#transfer-package-form")
+             |> render_submit(%{"owner_id" => to_string(new_owner.id)})
+
+    assert Repo.get!(Package, orphaned.id).user_id == Luxpkgs.Accounts.deleted_user().id
+  end
 end

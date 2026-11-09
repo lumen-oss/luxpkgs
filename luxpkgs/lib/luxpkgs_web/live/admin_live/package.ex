@@ -1,6 +1,7 @@
 defmodule LuxpkgsWeb.AdminLive.Package do
   use LuxpkgsWeb, :live_view
 
+  alias Luxpkgs.Accounts
   alias Luxpkgs.Admin.PackageSource
   alias Luxpkgs.Admin.Permissions
   alias Luxpkgs.Packages
@@ -29,6 +30,9 @@ defmodule LuxpkgsWeb.AdminLive.Package do
            |> assign(:package, package)
            |> assign(:selected_release, selected)
            |> assign_source(selected)
+           |> assign(:owner_search, "")
+           |> assign(:owner_results, [])
+           |> assign(:selected_owner_id, nil)
            |> assign(:page_title, "#{package.name} · Admin")}
       end
     else
@@ -84,6 +88,84 @@ defmodule LuxpkgsWeb.AdminLive.Package do
           {:noreply, put_flash(socket, :error, "Could not update the package.")}
       end
     end
+  end
+
+  def handle_event("search_owners", params, socket) do
+    term = params |> Map.get("owner_search", "") |> to_string() |> String.trim()
+    selected = params["owner_id"]
+
+    results =
+      if byte_size(term) >= 2 do
+        Accounts.list_users(search: term, status: "active", page: 1).users
+        |> Enum.take(8)
+      else
+        []
+      end
+
+    {:noreply,
+     socket
+     |> assign(:owner_search, term)
+     |> assign(:owner_results, results)
+     |> assign(:selected_owner_id, selected)}
+  end
+
+  def handle_event("transfer", %{"owner_id" => owner_id}, socket) do
+    if not AdminAuth.destructive_fresh?(socket) do
+      {:noreply,
+       socket
+       |> put_flash(:error, "Verify your second factor before transferring a package.")
+       |> redirect(to: ~p"/admin/verify")}
+    else
+      target =
+        case Integer.parse(to_string(owner_id || "")) do
+          {id, ""} -> Accounts.get_user(id)
+          _ -> nil
+        end
+
+      if is_nil(target) do
+        {:noreply, put_flash(socket, :error, "Choose a new owner.")}
+      else
+        case Packages.transfer_package(
+               socket.assigns.current_admin,
+               socket.assigns.package,
+               target
+             ) do
+          {:ok, _package} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Ownership transferred to #{target.username}.")
+             |> assign(:owner_search, "")
+             |> assign(:owner_results, [])
+             |> assign(:selected_owner_id, nil)
+             |> reload_package()}
+
+          {:error, :insufficient_permissions} ->
+            {:noreply, put_flash(socket, :error, "You do not have permission to do that.")}
+
+          {:error, :invalid_owner} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "Only packages owned by a deleted account can be transferred."
+             )}
+
+          {:error, :invalid_target} ->
+            {:noreply, put_flash(socket, :error, "Choose a different active user.")}
+
+          {:error, :suspended_target} ->
+            {:noreply,
+             put_flash(socket, :error, "You cannot transfer a package to a suspended user.")}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "Could not transfer the package.")}
+        end
+      end
+    end
+  end
+
+  def handle_event("transfer", _params, socket) do
+    {:noreply, put_flash(socket, :error, "Choose a new owner.")}
   end
 
   defp moderate("hide", admin, package), do: Packages.hide_package(admin, package)
@@ -280,6 +362,82 @@ defmodule LuxpkgsWeb.AdminLive.Package do
               </button>
             </div>
           </div>
+
+          <section
+            :if={
+              @package.user.provider == "deleted" and
+                Permissions.can?(@current_admin, :transfer_ownership)
+            }
+            id="transfer-package"
+            class="rounded-box border border-warning/40 bg-warning/10 p-4"
+          >
+            <h2 class="font-semibold">Ownership</h2>
+            <p class="mt-1 text-sm text-base-content/70">
+              This package was left by a deleted account. Transfer it to an active user.
+            </p>
+
+            <.form
+              for={%{}}
+              id="transfer-package-form"
+              phx-change="search_owners"
+              phx-submit="transfer"
+              class="mt-4 space-y-3"
+            >
+              <input
+                type="search"
+                id="owner-search"
+                name="owner_search"
+                value={@owner_search}
+                phx-debounce="300"
+                placeholder="Search username, email or name"
+                aria-label="Search new owner"
+                class="input input-bordered w-full bg-base-100"
+              />
+
+              <p
+                :if={@owner_search != "" and byte_size(@owner_search) < 2}
+                class="text-sm text-base-content/70"
+              >
+                Type at least two characters.
+              </p>
+
+              <p
+                :if={byte_size(@owner_search) >= 2 and @owner_results == []}
+                class="text-sm text-base-content/70"
+              >
+                No active users found.
+              </p>
+
+              <div :if={@owner_results != []} class="space-y-1">
+                <label
+                  :for={user <- @owner_results}
+                  id={"owner-option-#{user.id}"}
+                  class="flex cursor-pointer items-center gap-3 rounded-box border border-base-300 bg-base-100 p-3 text-sm"
+                >
+                  <input
+                    type="radio"
+                    name="owner_id"
+                    value={user.id}
+                    checked={to_string(@selected_owner_id) == to_string(user.id)}
+                    class="radio radio-sm"
+                  />
+                  <span>
+                    <span class="font-semibold">{user.username}</span>
+                    <span class="ml-2 text-base-content/70">{user.email}</span>
+                  </span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                id="transfer-submit"
+                disabled={is_nil(@selected_owner_id)}
+                class="btn btn-sm btn-primary"
+              >
+                Transfer package
+              </button>
+            </.form>
+          </section>
 
           <div class="grid gap-6 lg:grid-cols-2">
             <section class="order-2 rounded-box border border-base-300 bg-base-100 lg:order-1">

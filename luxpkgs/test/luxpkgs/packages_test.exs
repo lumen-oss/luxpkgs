@@ -478,4 +478,66 @@ defmodule Luxpkgs.PackagesTest do
       assert Packages.list_packages_admin(search: "admin_active").total_count == 1
     end
   end
+
+  describe "transfer_package/3" do
+    import Luxpkgs.AccountsFixtures
+    import Luxpkgs.AdminFixtures
+    import Luxpkgs.PackagesFixtures
+
+    alias Luxpkgs.Packages.Package
+
+    test "transfers a deleted owner's package and records an audit event" do
+      admin_user = user_fixture()
+      admin = admin_fixture(%{user: admin_user, role: :admin})
+      package = deleted_owner_package_fixture(%{name: "orphan_transfer"})
+      new_owner = user_fixture()
+
+      assert {:ok, transferred} = Packages.transfer_package(admin, package, new_owner)
+      assert transferred.user_id == new_owner.id
+      assert Luxpkgs.Repo.get!(Package, package.id).user_id == new_owner.id
+
+      assert [event] =
+               Luxpkgs.Audit.list_events(target_type: "package", target_id: package.id)
+
+      assert event.action == "package.transferred"
+      assert event.actor_label == admin_user.username
+      assert event.metadata["to_id"] == new_owner.id
+      assert event.metadata["from_id"] == package.user_id
+    end
+
+    test "moderators cannot transfer packages" do
+      package = deleted_owner_package_fixture()
+      moderator = admin_fixture(%{role: :moderator})
+      new_owner = user_fixture()
+
+      assert {:error, :insufficient_permissions} =
+               Packages.transfer_package(moderator, package, new_owner)
+    end
+
+    test "only packages owned by the deleted account can be transferred" do
+      scope = user_scope_fixture()
+      package = package_fixture(scope)
+      admin = admin_fixture(%{role: :admin})
+      new_owner = user_fixture()
+
+      assert {:error, :invalid_owner} = Packages.transfer_package(admin, package, new_owner)
+    end
+
+    test "the deleted sentinel cannot be the new owner" do
+      package = deleted_owner_package_fixture()
+      admin = admin_fixture(%{role: :admin})
+      sentinel = Luxpkgs.Accounts.deleted_user()
+
+      assert {:error, :invalid_target} = Packages.transfer_package(admin, package, sentinel)
+    end
+
+    test "suspended users cannot receive packages" do
+      package = deleted_owner_package_fixture()
+      admin = admin_fixture(%{role: :admin})
+      target = user_fixture()
+      assert {:ok, suspended, _tokens} = Luxpkgs.Accounts.suspend_user(admin, target, "Spam")
+
+      assert {:error, :suspended_target} = Packages.transfer_package(admin, package, suspended)
+    end
+  end
 end

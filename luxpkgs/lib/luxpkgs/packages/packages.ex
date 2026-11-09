@@ -498,6 +498,37 @@ defmodule Luxpkgs.Packages do
     set_package_featured(admin, package, false)
   end
 
+  @doc """
+  Transfers a package left behind by a deleted account to an active user.
+  """
+  def transfer_package(%Admin{} = admin, %Package{} = package, %User{} = new_owner) do
+    cond do
+      not Permissions.can?(admin, :transfer_ownership) ->
+        {:error, :insufficient_permissions}
+
+      not deleted_owner?(package) ->
+        {:error, :invalid_owner}
+
+      new_owner.id == package.user_id or new_owner.provider == "deleted" ->
+        {:error, :invalid_target}
+
+      User.suspended?(new_owner) ->
+        {:error, :suspended_target}
+
+      true ->
+        moderate_package(admin, package, "package.transferred", %{user_id: new_owner.id}, %{
+          "from" => "deleted",
+          "from_id" => package.user_id,
+          "to" => new_owner.username || new_owner.email,
+          "to_id" => new_owner.id
+        })
+    end
+  end
+
+  defp deleted_owner?(%Package{user_id: user_id}) do
+    Repo.exists?(from u in User, where: u.id == ^user_id and u.provider == "deleted")
+  end
+
   defp set_package_status(admin, package, status, action, permission, attrs) do
     if Permissions.can?(admin, permission) do
       if package.status == status do
