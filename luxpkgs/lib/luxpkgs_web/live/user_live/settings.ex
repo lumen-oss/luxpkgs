@@ -433,48 +433,31 @@ defmodule LuxpkgsWeb.UserLive.Settings do
         </div>
       </div>
 
-      <dialog
+      <.confirm_modal
         id="delete_account_modal"
-        class="modal"
-        phx-update="ignore"
-        phx-hook="Dialog"
-        aria-labelledby="delete_account_modal_title"
+        title="Delete Account?"
+        form={%{}}
+        form_id="delete_account_form"
+        submit="delete_account"
       >
-        <div class="modal-box">
-          <h3 id="delete_account_modal_title" class="text-lg font-bold text-base-content mb-4">
-            Delete Account?
-          </h3>
-          <p class="text-sm text-base-content/80 mb-4">
-            This permanently deletes your account and revokes all API keys and sessions. Your packages will remain available and be owned by a deleted user. This cannot be undone.
-          </p>
-          <.form for={%{}} id="delete_account_form" phx-submit="delete_account" class="space-y-4">
-            <.input
-              name="confirm"
-              type="text"
-              label={"Type #{@current_scope.user.username} to confirm"}
-              value=""
-              placeholder={@current_scope.user.username}
-              required
-              autocomplete="off"
-            />
-            <div class="modal-action">
-              <button
-                type="button"
-                class="btn btn-neutral mr-3"
-                onclick="delete_account_modal.close()"
-              >
-                Cancel
-              </button>
-              <button type="submit" class="btn btn-error" phx-disable-with="Deleting...">
-                <.icon name={:trash} type={:outline} class="w-4 h-4" /> Delete Account
-              </button>
-            </div>
-          </.form>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
+        <p class="text-sm text-base-content/80 mb-4">
+          This permanently deletes your account and revokes all API keys and sessions. Your packages will remain available and be owned by a deleted user. This cannot be undone.
+        </p>
+        <.input
+          name="confirm"
+          type="text"
+          label={"Type #{@current_scope.user.username} to confirm"}
+          value=""
+          placeholder={@current_scope.user.username}
+          required
+          autocomplete="off"
+        />
+        <:confirm>
+          <button type="submit" class="btn btn-error" phx-disable-with="Deleting...">
+            <.icon name={:trash} type={:outline} class="w-4 h-4" /> Delete Account
+          </button>
+        </:confirm>
+      </.confirm_modal>
 
       <dialog
         id="regenerate_backup_codes_modal"
@@ -531,44 +514,31 @@ defmodule LuxpkgsWeb.UserLive.Settings do
         </form>
       </dialog>
 
-      <dialog
+      <.confirm_modal
         id="remove_tfa_modal"
-        class="modal"
-        phx-update="ignore"
-        phx-hook="Dialog"
-        aria-labelledby="remove_tfa_modal_title"
+        title="Remove two-factor authentication?"
+        form={%{}}
+        form_id="remove_tfa_form"
+        submit="remove_tfa"
       >
-        <div class="modal-box">
-          <h3 id="remove_tfa_modal_title" class="text-lg font-bold text-base-content mb-4">
-            Remove two-factor authentication?
-          </h3>
-          <p class="text-sm text-base-content/80 mb-6">
-            Your authenticator secret and all backup codes will be deleted, and you will be asked to set two-factor authentication up again. Enter a code from your authenticator app, or one of your backup codes, to continue.
-          </p>
-          <.form for={%{}} id="remove_tfa_form" phx-submit="remove_tfa" class="space-y-4">
-            <.input
-              name="code"
-              type="text"
-              label="Verification Code"
-              value=""
-              placeholder="6-digit code or backup code"
-              required
-              autocomplete="one-time-code"
-            />
-            <div class="modal-action">
-              <button type="button" class="btn btn-neutral mr-3" onclick="remove_tfa_modal.close()">
-                Cancel
-              </button>
-              <button type="submit" class="btn btn-error" phx-disable-with="Removing...">
-                <.icon name={:trash} type={:outline} class="w-4 h-4" /> Remove
-              </button>
-            </div>
-          </.form>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
+        <p class="text-sm text-base-content/80 mb-6">
+          Your authenticator secret and all backup codes will be deleted, and you will be asked to set two-factor authentication up again. Enter a code from your authenticator app, or one of your current backup codes, to continue.
+        </p>
+        <.input
+          name="code"
+          type="text"
+          label="Verification Code"
+          value=""
+          placeholder="6-digit code or backup code"
+          required
+          autocomplete="one-time-code"
+        />
+        <:confirm>
+          <button type="submit" class="btn btn-error" phx-disable-with="Removing...">
+            <.icon name={:trash} type={:outline} class="w-4 h-4" /> Remove
+          </button>
+        </:confirm>
+      </.confirm_modal>
     </Layouts.app>
     """
   end

@@ -64,6 +64,19 @@ defmodule LuxpkgsWeb.AdminTotpControllerTest do
     assert redirected_to(conn) == ~p"/admin"
   end
 
+  test "renders the verification page when only page freshness is valid", %{conn: conn} do
+    user = user_fixture()
+    admin_fixture(%{user: user})
+
+    conn =
+      conn
+      |> log_in_user(user)
+      |> put_session(:admin_totp_verified_at, System.os_time(:second) - 11 * 60)
+      |> get(~p"/admin/verify")
+
+    assert html_response(conn, 200) =~ "Admin verification"
+  end
+
   test "verifies a valid code, stores freshness, and audits the login", %{conn: conn} do
     user = user_fixture()
     admin = admin_fixture(%{user: user, role: :admin})

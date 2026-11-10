@@ -85,6 +85,7 @@ defmodule LuxpkgsWeb do
       # HTML escaping functionality
       import Phoenix.HTML
       # Core UI components
+      import LuxpkgsWeb.ConfirmModal
       import LuxpkgsWeb.CoreComponents
 
       # Common modules used in templates
