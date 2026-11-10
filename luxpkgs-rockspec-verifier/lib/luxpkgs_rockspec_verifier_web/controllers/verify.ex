@@ -3,6 +3,9 @@ defmodule LuxpkgsRockspecVerifierWeb.VerifyController do
 
   alias LuxpkgsRockspecVerifier.Rockspec
 
+  # Real rockspecs can reach ~40 KB (Kong); 48 KB leaves headroom.
+  @max_rockspec_bytes 48 * 1024
+
   def verify(conn, %{
         "rockspec" => rockspec,
         "package" => expected_name,
@@ -11,7 +14,7 @@ defmodule LuxpkgsRockspecVerifierWeb.VerifyController do
       when is_binary(rockspec) and
              is_binary(expected_name) and
              is_binary(expected_version) and
-             byte_size(rockspec) <= 2_560 do
+             byte_size(rockspec) <= @max_rockspec_bytes do
     case Rockspec.verify(rockspec, %{
            expected_name: expected_name,
            expected_version: expected_version
@@ -41,7 +44,7 @@ defmodule LuxpkgsRockspecVerifierWeb.VerifyController do
   end
 
   def parse(conn, %{"rockspec" => rockspec})
-      when is_binary(rockspec) and byte_size(rockspec) <= 2_560 do
+      when is_binary(rockspec) and byte_size(rockspec) <= @max_rockspec_bytes do
     case Rockspec.parse(rockspec) do
       {:ok, parsed} ->
         json(conn, parsed)

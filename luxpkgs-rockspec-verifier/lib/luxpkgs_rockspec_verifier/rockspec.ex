@@ -1,4 +1,8 @@
 defmodule LuxpkgsRockspecVerifier.Rockspec do
+  # Kong's 48 KB rockspec measures ~525k reductions; the old 500-reduction
+  # budget killed it. 750k leaves margin without a generous cap.
+  @execution_limits %{max_reductions: 750_000, max_time: 1_000}
+
   def verify(rockspec, %{
         expected_name: expected_name,
         expected_version: expected_version
@@ -8,10 +12,7 @@ defmodule LuxpkgsRockspecVerifier.Rockspec do
     Regex.match?(~r/^[a-zA-Z0-9_\.\-]+$/, expected_name) and
       case :luerl_sandbox.run(
              rockspec,
-             %{
-               max_reductions: 500
-               # max_time: ...
-             },
+             @execution_limits,
              sandboxed_state
            ) do
         {:ok, _, state} ->
@@ -21,8 +22,10 @@ defmodule LuxpkgsRockspecVerifier.Rockspec do
                  Luerl.get_table_keys_dec(state, ["package"]),
                {:ok, ^expected_version, _} <-
                  Luerl.get_table_keys_dec(state, ["version"]),
-               {:ok, source, _} <- Luerl.get_table_keys_dec(state, ["source"]),
-               {:ok, build, _} <- Luerl.get_table_keys_dec(state, ["build"]) do
+               {:ok, source, _} when is_list(source) <-
+                 Luerl.get_table_keys_dec(state, ["source"]),
+               {:ok, build, _} when is_list(build) <-
+                 Luerl.get_table_keys_dec(state, ["build"]) do
             {has_tag_or_hash, has_git_url} =
               Enum.reduce(source, {false, false}, fn
                 {tag_or_hash, _}, {_, has_url} when tag_or_hash in ["tag", "hash"] ->
@@ -59,6 +62,9 @@ defmodule LuxpkgsRockspecVerifier.Rockspec do
 
         {:error, _} ->
           false
+
+        _ ->
+          false
       end
   end
 
@@ -68,7 +74,7 @@ defmodule LuxpkgsRockspecVerifier.Rockspec do
   def parse(rockspec_text) do
     sandboxed_state = :luerl_sandbox.init()
 
-    case :luerl_sandbox.run(rockspec_text, %{max_reductions: 500}, sandboxed_state) do
+    case :luerl_sandbox.run(rockspec_text, @execution_limits, sandboxed_state) do
       {:ok, _, state} ->
         package = get_field(state, "package")
         version = get_field(state, "version")
