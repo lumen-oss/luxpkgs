@@ -323,12 +323,35 @@ defmodule LuxpkgsWeb.AdminLive.Package do
                   @package.status in [:active, :hidden] and
                     Permissions.can?(@current_admin, :remove_package)
                 }
-                phx-click="moderate"
-                phx-value-action="remove"
+                onclick="remove_package_modal.showModal()"
                 class="btn btn-sm btn-error"
               >
                 <.icon name={:trash} type={:outline} class="size-4" /> Remove
               </button>
+
+              <.confirm_modal
+                :if={
+                  @package.status in [:active, :hidden] and
+                    Permissions.can?(@current_admin, :remove_package)
+                }
+                id="remove_package_modal"
+                title="Remove package?"
+              >
+                <p class="text-sm text-base-content/80">
+                  This removes the package from public listings and API access. You can restore it later.
+                </p>
+                <:confirm>
+                  <button
+                    type="button"
+                    phx-click="moderate"
+                    phx-value-action="remove"
+                    onclick="remove_package_modal.close()"
+                    class="btn btn-error"
+                  >
+                    Remove package
+                  </button>
+                </:confirm>
+              </.confirm_modal>
               <button
                 :if={
                   @package.status == :removed and

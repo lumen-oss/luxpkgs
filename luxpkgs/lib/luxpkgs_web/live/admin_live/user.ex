@@ -67,6 +67,7 @@ defmodule LuxpkgsWeb.AdminLive.User do
 
     {:noreply,
      socket
+     |> push_event("close_dialog", %{id: "suspend_user_modal"})
      |> put_flash(:info, message)
      |> assign_user(user)}
   end
@@ -238,13 +239,34 @@ defmodule LuxpkgsWeb.AdminLive.User do
               This account is active.
             </p>
 
-            <.form
+            <button
               :if={!User.suspended?(@user)}
-              for={%{}}
-              id="suspend-user-form"
-              phx-submit="suspend"
-              class="mt-3 space-y-3"
+              type="button"
+              onclick="suspend_user_modal.showModal()"
+              disabled={@current_admin.user_id == @user.id}
+              class="btn btn-error btn-sm mt-3"
             >
+              Suspend user
+            </button>
+
+            <p
+              :if={!User.suspended?(@user) and @current_admin.user_id == @user.id}
+              class="mt-3 text-sm text-base-content/70"
+            >
+              You cannot suspend your own account.
+            </p>
+
+            <.confirm_modal
+              :if={!User.suspended?(@user)}
+              id="suspend_user_modal"
+              title="Suspend user?"
+              form={%{}}
+              form_id="suspend-user-form"
+              submit="suspend"
+            >
+              <p class="text-sm text-base-content/80">
+                Suspending this user ends their sessions and API access. Their packages stay active.
+              </p>
               <textarea
                 name="reason"
                 rows="3"
@@ -254,17 +276,16 @@ defmodule LuxpkgsWeb.AdminLive.User do
                 aria-label="Suspension reason"
                 class="textarea textarea-bordered w-full bg-base-100"
               ></textarea>
-              <button
-                type="submit"
-                class="btn btn-error btn-sm"
-                disabled={@current_admin.user_id == @user.id}
-              >
-                Suspend user
-              </button>
-              <p :if={@current_admin.user_id == @user.id} class="text-sm text-base-content/70">
-                You cannot suspend your own account.
-              </p>
-            </.form>
+              <:confirm>
+                <button
+                  type="submit"
+                  class="btn btn-error"
+                  disabled={@current_admin.user_id == @user.id}
+                >
+                  Suspend user
+                </button>
+              </:confirm>
+            </.confirm_modal>
 
             <button
               :if={User.suspended?(@user)}

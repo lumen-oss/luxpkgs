@@ -36,6 +36,9 @@ defmodule LuxpkgsWeb.AdminAuth do
 
   def page_fresh?(verified_at), do: fresh?(verified_at, @page_freshness_seconds)
 
+  def destructive_fresh?(verified_at) when is_integer(verified_at),
+    do: fresh?(verified_at, @destructive_freshness_seconds)
+
   def destructive_fresh?(%{assigns: %{admin_totp_verified_at: verified_at}}),
     do: fresh?(verified_at, @destructive_freshness_seconds)
 

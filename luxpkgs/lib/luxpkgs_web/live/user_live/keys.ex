@@ -225,44 +225,26 @@ defmodule LuxpkgsWeb.UserLive.Keys do
         </form>
       </dialog>
 
-      <dialog
-        id="revoke_key_modal"
-        class="modal"
-        phx-update="ignore"
-        phx-hook="Dialog"
-        aria-labelledby="revoke_key_modal_title"
-      >
-        <div class="modal-box">
-          <h3 id="revoke_key_modal_title" class="text-lg font-bold text-base-content mb-4">
-            Revoke API Key
-          </h3>
-          <p class="text-sm text-base-content/80 mb-4">
-            Revoked API keys have zero permissions and cannot be used again.
-          </p>
+      <.confirm_modal id="revoke_key_modal" title="Revoke API Key" form={%{}} submit="revoke_key">
+        <p class="text-sm text-base-content/80 mb-4">
+          Revoked API keys have zero permissions and cannot be used again.
+        </p>
 
-          <.form for={%{}} phx-submit="revoke_key" class="space-y-4">
-            <.input
-              name="revoked_key"
-              type="text"
-              label="API Key"
-              value=""
-              placeholder="Enter the API key to revoke..."
-              required
-            />
-            <div class="modal-action">
-              <button type="button" class="btn btn-neutral mr-3" onclick="revoke_key_modal.close()">
-                Cancel
-              </button>
-              <button type="submit" class="btn btn-error" phx-disable-with="Revoking...">
-                <.icon name={:trash} type={:outline} class="w-4 h-4" /> Revoke Key
-              </button>
-            </div>
-          </.form>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
+        <.input
+          name="revoked_key"
+          type="text"
+          label="API Key"
+          value=""
+          placeholder="Enter the API key to revoke..."
+          required
+        />
+
+        <:confirm>
+          <button type="submit" class="btn btn-error" phx-disable-with="Revoking...">
+            <.icon name={:trash} type={:outline} class="w-4 h-4" /> Revoke Key
+          </button>
+        </:confirm>
+      </.confirm_modal>
     </Layouts.app>
     """
   end

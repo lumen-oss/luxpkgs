@@ -10,7 +10,7 @@ defmodule LuxpkgsWeb.AdminTotpController do
   def new(conn, _params) do
     case admin_context(conn) do
       {:ok, _user, _admin} ->
-        if AdminAuth.page_fresh?(get_session(conn, :admin_totp_verified_at)) do
+        if AdminAuth.destructive_fresh?(get_session(conn, :admin_totp_verified_at)) do
           redirect(conn, to: ~p"/admin")
         else
           render(conn, :new,
