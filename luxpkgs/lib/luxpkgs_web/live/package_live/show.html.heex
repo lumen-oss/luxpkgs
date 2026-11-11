@@ -130,7 +130,8 @@
       <div class="page-container max-w-6xl py-6 lg:py-8">
         <div class="flex flex-col lg:grid lg:grid-cols-3 gap-6 lg:gap-8">
           <div class="lg:col-span-2 space-y-6 lg:space-y-8">
-            <%= if @package.description && @package.description != @package.summary do %>
+            <% description = description_for(@package, @metadata) %>
+            <%= if description && description != @package.summary do %>
               <div class="bg-base-200 border border-base-300 p-4 lg:p-6 rounded-box">
                 <h2 class="text-lg lg:text-xl font-semibold text-base-content mb-3 lg:mb-4 flex items-center">
                   <.icon
@@ -140,7 +141,7 @@
                   /> Description
                 </h2>
                 <div class="prose prose-sm max-w-none text-base-content/80">
-                  <.markdown content={@package.description} />
+                  <.markdown content={description} />
                 </div>
               </div>
             <% end %>
@@ -213,6 +214,10 @@
                   class="w-4 h-4 lg:w-5 lg:h-5 mr-2 text-primary"
                 /> Versions
               </h2>
+
+              <p :if={@package.releases == []} class="text-sm text-base-content/70">
+                No releases yet. This package will appear here once a version is published.
+              </p>
 
               <div class="space-y-3 lg:space-y-4">
                 <%= for release <- Enum.reverse(@package.releases) do %>

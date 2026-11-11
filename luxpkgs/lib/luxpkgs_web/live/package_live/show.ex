@@ -175,6 +175,11 @@ defmodule LuxpkgsWeb.PackageLive.Show do
 
   defp latest_release(package), do: Packages.latest_release(package)
 
+  defp description_for(package, metadata) do
+    [package.description, metadata["detailed"]]
+    |> Enum.find(&(is_binary(&1) and String.valid?(&1) and String.trim(&1) != ""))
+  end
+
   defp latest_metadata(package) do
     case latest_release(package) do
       nil -> %{}

@@ -375,6 +375,52 @@ defmodule LuxpkgsWeb.PackageLive.ShowTest do
     assert has_element?(lv, ~s{button[phx-click][aria-label="Copy luarocks install command"]})
   end
 
+  test "falls back to the detailed metadata description", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope, description: nil)
+    release_fixture(scope, package, metadata: %{"detailed" => "Detailed **metadata** text."})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "h2", "Description")
+    assert has_element?(lv, ".prose strong", "metadata")
+  end
+
+  test "sanitizes markdown in the description fallback", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope, description: nil)
+
+    release_fixture(scope, package,
+      metadata: %{"detailed" => "Text <script>alert('x')</script> more."}
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "h2", "Description")
+    refute has_element?(lv, "script")
+    assert render(lv) =~ "more."
+  end
+
+  test "hides the description card when it would repeat the summary", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope, description: nil, summary: "Same text")
+    release_fixture(scope, package, metadata: %{"detailed" => "Same text"})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "h2", "Description")
+  end
+
+  test "shows an empty state when the package has no releases", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "h2", "Versions")
+    assert render(lv) =~ "No releases yet."
+  end
+
   test "flashes a confirmation after copying a command", %{conn: conn} do
     scope = user_scope_fixture()
     package = package_fixture(scope)
