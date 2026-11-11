@@ -25,6 +25,7 @@ defmodule LuxpkgsWeb.PackageLive.Show do
            |> assign(:not_found, false)
            |> assign(:owner, owner?)
            |> assign(:package, Luxpkgs.Repo.preload(package, :user))
+           |> assign(:metadata, latest_metadata(package))
            |> assign(:report_state, report_state(socket, package, owner?))
            |> assign(:page_title, package.name)}
         else
@@ -79,6 +80,7 @@ defmodule LuxpkgsWeb.PackageLive.Show do
       {:noreply,
        socket
        |> assign(:package, package)
+       |> assign(:metadata, latest_metadata(package))
        |> put_flash(:info, if(action == :yank, do: "Release yanked.", else: "Release unyanked."))}
     else
       _ ->
@@ -168,4 +170,37 @@ defmodule LuxpkgsWeb.PackageLive.Show do
   end
 
   defp latest_release(package), do: Packages.latest_release(package)
+
+  defp latest_metadata(package) do
+    case latest_release(package) do
+      nil -> %{}
+      release -> release.metadata || %{}
+    end
+  end
+
+  defp lua_requirement(metadata) do
+    case metadata["lua"] do
+      lua when is_binary(lua) ->
+        lua
+
+      _ ->
+        metadata
+        |> Map.get("dependencies", [])
+        |> List.wrap()
+        |> Enum.find(&(is_binary(&1) and String.starts_with?(&1, "lua ")))
+    end
+  end
+
+  @platform_labels %{
+    "linux" => "Linux",
+    "macosx" => "macOS",
+    "windows" => "Windows",
+    "unix" => "Unix"
+  }
+
+  defp platform_label(platform), do: Map.get(@platform_labels, platform, platform)
+
+  defp build_label("builtin"), do: nil
+  defp build_label(build) when is_binary(build), do: build
+  defp build_label(_build), do: nil
 end

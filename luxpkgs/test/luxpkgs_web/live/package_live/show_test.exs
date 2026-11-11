@@ -169,4 +169,51 @@ defmodule LuxpkgsWeb.PackageLive.ShowTest do
     assert html =~ "Too many reports. Try again later."
     assert Moderation.list_reports() == []
   end
+
+  test "shows license, Lua, platforms, build and updated date", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "license" => "MIT",
+        "lua" => ">= 5.1",
+        "platforms" => ["linux", "macosx", "!windows"],
+        "build_type" => "cmake"
+      }
+    )
+
+    {:ok, lv, html} = live(conn, ~p"/package/#{package.name}")
+
+    assert html =~ ">License<"
+    assert html =~ "MIT"
+    assert html =~ ">Lua<"
+    assert html =~ "&gt;= 5.1"
+    assert html =~ ">Platforms<"
+    assert html =~ "Linux, macOS"
+    refute html =~ "Not Windows"
+    assert html =~ ">Build<"
+    assert html =~ "cmake"
+    assert html =~ ">Updated<"
+    refute html =~ ">Created<"
+    refute html =~ ">Package Name<"
+    assert has_element?(lv, "h3", "Package Overview")
+  end
+
+  test "hides missing metadata rows and omits the builtin build type", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{"build_type" => "builtin", "platforms" => ["!windows"]}
+    )
+
+    {:ok, _lv, html} = live(conn, ~p"/package/#{package.name}")
+
+    refute html =~ ">License<"
+    refute html =~ ">Lua<"
+    refute html =~ ">Platforms<"
+    refute html =~ ">Build<"
+    assert html =~ ">Updated<"
+  end
 end

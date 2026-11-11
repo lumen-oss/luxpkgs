@@ -182,12 +182,13 @@
                 Package Overview
               </h3>
               <div class="space-y-3 lg:space-y-4">
-                <div class="flex justify-between items-center">
-                  <span class="text-sm lg:text-base text-base-content/70">Package Name</span>
-                  <span class="font-mono font-semibold text-sm lg:text-base text-base-content">
-                    {@package.name}
-                  </span>
-                </div>
+                <% lua = lua_requirement(@metadata) %>
+                <% platforms =
+                  @metadata["platforms"]
+                  |> List.wrap()
+                  |> Enum.filter(&is_binary/1)
+                  |> Enum.reject(&String.starts_with?(&1, "!")) %>
+                <% build = build_label(@metadata["build_type"]) %>
                 <div class="flex justify-between items-center">
                   <span class="text-sm lg:text-base text-base-content/70">Total Downloads</span>
                   <span class="font-semibold text-base lg:text-lg text-base-content">
@@ -200,10 +201,40 @@
                     {length(@package.releases)}
                   </span>
                 </div>
-                <div class="flex justify-between items-center">
-                  <span class="text-sm lg:text-base text-base-content/70">Created</span>
-                  <span class="font-medium text-sm lg:text-base text-base-content">
-                    {format_date(@package.inserted_at)}
+                <div
+                  :if={is_binary(@metadata["license"])}
+                  class="flex justify-between items-center gap-3"
+                >
+                  <span class="text-sm lg:text-base text-base-content/70">License</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {@metadata["license"]}
+                  </span>
+                </div>
+                <div :if={lua} class="flex justify-between items-center gap-3">
+                  <span class="text-sm lg:text-base text-base-content/70">Lua</span>
+                  <span class="font-mono font-medium text-sm lg:text-base text-base-content text-right">
+                    {lua}
+                  </span>
+                </div>
+                <div
+                  :if={platforms != []}
+                  class="flex justify-between items-center gap-3"
+                >
+                  <span class="text-sm lg:text-base text-base-content/70">Platforms</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {Enum.map_join(platforms, ", ", &platform_label/1)}
+                  </span>
+                </div>
+                <div :if={build} class="flex justify-between items-center gap-3">
+                  <span class="text-sm lg:text-base text-base-content/70">Build</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {build}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center gap-3">
+                  <span class="text-sm lg:text-base text-base-content/70">Updated</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {format_date((latest_release(@package) || @package).inserted_at)}
                   </span>
                 </div>
               </div>
