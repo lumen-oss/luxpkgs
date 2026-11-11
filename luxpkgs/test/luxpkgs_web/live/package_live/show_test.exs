@@ -358,4 +358,32 @@ defmodule LuxpkgsWeb.PackageLive.ShowTest do
 
     refute has_element?(lv, "#package-dependencies")
   end
+
+  test "shows installation commands with copy buttons", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package)
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "#install-lx-add", "lx add #{package.name}")
+    assert has_element?(lv, "#install-lx-install", "lx install #{package.name}")
+    assert has_element?(lv, "#install-luarocks", "luarocks install #{package.name}")
+
+    assert has_element?(lv, ~s{button[phx-click][aria-label="Copy lx add command"]})
+    assert has_element?(lv, ~s{button[phx-click][aria-label="Copy lx install command"]})
+    assert has_element?(lv, ~s{button[phx-click][aria-label="Copy luarocks install command"]})
+  end
+
+  test "flashes a confirmation after copying a command", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package)
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    html = render_hook(lv, "copy_command", %{})
+
+    assert html =~ "Command copied to clipboard!"
+  end
 end

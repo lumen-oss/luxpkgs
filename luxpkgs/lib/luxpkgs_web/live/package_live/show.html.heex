@@ -389,18 +389,74 @@
               <div class="space-y-3">
                 <div>
                   <div class="text-sm lg:text-base text-base-content/70 mb-2 flex items-center">
-                    <span class="font-medium">Via Lux</span>
+                    <span class="font-medium">Add to a Lux project</span>
                   </div>
-                  <div class="bg-base-300 p-3 font-mono text-xs lg:text-sm text-base-content rounded-box overflow-x-auto">
-                    lx install {@package.name}
+                  <div class="flex items-stretch bg-base-300 rounded-box">
+                    <code
+                      id="install-lx-add"
+                      phx-no-format
+                      class="flex-1 p-3 pr-0 font-mono text-xs lg:text-sm text-base-content overflow-x-auto"
+                    >lx add {@package.name}</code>
+                    <button
+                      type="button"
+                      phx-click={
+                        JS.dispatch("phx:clipcopy", to: "#install-lx-add")
+                        |> JS.push("copy_command")
+                      }
+                      class="btn btn-ghost btn-sm shrink-0 self-center mr-1.5"
+                      title="Copy to clipboard"
+                      aria-label="Copy lx add command"
+                    >
+                      <.icon name={:clipboard} type={:outline} class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm lg:text-base text-base-content/70 mb-2 flex items-center">
+                    <span class="font-medium">Install globally with Lux</span>
+                  </div>
+                  <div class="flex items-stretch bg-base-300 rounded-box">
+                    <code
+                      id="install-lx-install"
+                      phx-no-format
+                      class="flex-1 p-3 pr-0 font-mono text-xs lg:text-sm text-base-content overflow-x-auto"
+                    >lx install {@package.name}</code>
+                    <button
+                      type="button"
+                      phx-click={
+                        JS.dispatch("phx:clipcopy", to: "#install-lx-install")
+                        |> JS.push("copy_command")
+                      }
+                      class="btn btn-ghost btn-sm shrink-0 self-center mr-1.5"
+                      title="Copy to clipboard"
+                      aria-label="Copy lx install command"
+                    >
+                      <.icon name={:clipboard} type={:outline} class="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
                 <div>
                   <div class="text-sm lg:text-base text-base-content/70 mb-2 flex items-center">
                     <span class="font-medium">Via LuaRocks</span>
                   </div>
-                  <div class="bg-base-300 p-3 font-mono text-xs lg:text-sm text-base-content rounded-box overflow-x-auto">
-                    luarocks install {@package.name}
+                  <div class="flex items-stretch bg-base-300 rounded-box">
+                    <code
+                      id="install-luarocks"
+                      phx-no-format
+                      class="flex-1 p-3 pr-0 font-mono text-xs lg:text-sm text-base-content overflow-x-auto"
+                    >luarocks install {@package.name}</code>
+                    <button
+                      type="button"
+                      phx-click={
+                        JS.dispatch("phx:clipcopy", to: "#install-luarocks")
+                        |> JS.push("copy_command")
+                      }
+                      class="btn btn-ghost btn-sm shrink-0 self-center mr-1.5"
+                      title="Copy to clipboard"
+                      aria-label="Copy luarocks install command"
+                    >
+                      <.icon name={:clipboard} type={:outline} class="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </div>

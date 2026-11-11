@@ -60,6 +60,10 @@ defmodule LuxpkgsWeb.PackageLive.Show do
     end
   end
 
+  def handle_event("copy_command", _params, socket) do
+    {:noreply, put_flash(socket, :info, "Command copied to clipboard!")}
+  end
+
   def handle_event("yank_release", %{"id" => id}, socket) do
     set_release_yanked(socket, id, :yank)
   end
