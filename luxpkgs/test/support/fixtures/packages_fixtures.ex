@@ -41,7 +41,8 @@ defmodule Luxpkgs.PackagesFixtures do
       rockspec_path: "#{safe_name}-#{safe_version}.rockspec",
       package_id: package.id,
       download_count: 0,
-      yanked_at: attrs[:yanked_at]
+      yanked_at: attrs[:yanked_at],
+      metadata: attrs[:metadata] || %{}
     })
     |> Luxpkgs.Repo.insert!()
   end
