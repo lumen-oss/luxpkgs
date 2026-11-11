@@ -289,4 +289,73 @@ defmodule LuxpkgsWeb.PackageLive.ShowTest do
 
     refute has_element?(lv, "#package-links")
   end
+
+  test "lists runtime and system dependencies from metadata", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "dependencies" => ["lua >= 5.1", "penlight >= 1.9", 42, "", "penlight >= 1.9"],
+        "external_dependencies" => [
+          %{"name" => "OPENSSL", "header" => "openssl/ssl.h", "library" => "ssl"},
+          %{"name" => "ZLIB", "library" => "z"},
+          %{"name" => "BROKEN"},
+          "not-a-map"
+        ]
+      }
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "#package-dependencies")
+
+    assert has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="runtime-dependencies"] li},
+             "penlight >= 1.9"
+           )
+
+    refute has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="runtime-dependencies"] li},
+             "lua >= 5.1"
+           )
+
+    assert has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="system-dependencies"] li},
+             "OPENSSL"
+           )
+
+    assert has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="system-dependencies"] li},
+             "openssl/ssl.h, ssl"
+           )
+  end
+
+  test "caps runtime dependencies and reports the remainder", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    dependencies = for i <- 1..25, do: "dep-#{i} >= 1.0"
+
+    release_fixture(scope, package, metadata: %{"dependencies" => dependencies})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "#package-dependencies li", "dep-20 >= 1.0")
+    refute has_element?(lv, "#package-dependencies li", "dep-21 >= 1.0")
+    assert has_element?(lv, "#package-dependencies", "and 5 more")
+  end
+
+  test "hides the dependencies card when there is no dependency metadata", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package, metadata: %{})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "#package-dependencies")
+  end
 end

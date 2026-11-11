@@ -241,4 +241,49 @@ defmodule LuxpkgsWeb.PackageLive.Show do
       label
     end
   end
+
+  @max_dependencies 20
+  @max_external_dependencies 10
+
+  defp runtime_dependencies(metadata) do
+    dependencies =
+      metadata
+      |> Map.get("dependencies", [])
+      |> List.wrap()
+      |> Enum.filter(&(is_binary(&1) and String.valid?(&1)))
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&String.starts_with?(&1, "lua "))
+      |> Enum.uniq()
+
+    {Enum.take(dependencies, @max_dependencies), max(length(dependencies) - @max_dependencies, 0)}
+  end
+
+  defp external_dependencies(metadata) do
+    metadata
+    |> Map.get("external_dependencies", [])
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&external_dependency/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.take(@max_external_dependencies)
+  end
+
+  defp external_dependency(dependency) do
+    case Map.get(dependency, "name") do
+      name when is_binary(name) and name != "" ->
+        if String.valid?(name) do
+          detail =
+            [dependency["header"], dependency["library"]]
+            |> Enum.filter(&(is_binary(&1) and String.valid?(&1) and &1 != ""))
+            |> Enum.join(", ")
+
+          %{name: name, detail: detail}
+        end
+
+      _ ->
+        nil
+    end
+  end
 end
