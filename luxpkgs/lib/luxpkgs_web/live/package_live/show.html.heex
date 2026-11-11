@@ -60,6 +60,45 @@
               <p class="text-base-content/80 text-base lg:text-lg leading-relaxed">
                 {@package.summary || "No description available"}
               </p>
+
+              <% homepage = safe_url(@metadata["homepage"]) %>
+              <% issues = safe_url(@metadata["issues_url"]) %>
+              <% labels = labels(@metadata) %>
+
+              <div
+                :if={homepage || issues || labels != []}
+                id="package-links"
+                class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2"
+              >
+                <.link
+                  :if={homepage}
+                  href={homepage}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-ghost btn-sm gap-1.5 px-2 text-base-content/70 hover:text-primary"
+                >
+                  <.icon name={:link} type={:outline} class="w-4 h-4" /> Homepage
+                </.link>
+                <.link
+                  :if={issues}
+                  href={issues}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-ghost btn-sm gap-1.5 px-2 text-base-content/70 hover:text-primary"
+                >
+                  <.icon name={:external_link} type={:outline} class="w-4 h-4" /> Issues
+                </.link>
+                <span
+                  :if={homepage && issues}
+                  class="hidden sm:block h-4 w-px bg-base-300"
+                ></span>
+                <div :if={labels != []} class="flex flex-wrap items-center gap-2">
+                  <.icon name={:tag} type={:outline} class="w-4 h-4 text-base-content/50" />
+                  <span :for={label <- labels} class="badge badge-soft badge-sm">
+                    {label}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-base-100 border border-base-300 rounded-box">
@@ -91,7 +130,8 @@
       <div class="page-container max-w-6xl py-6 lg:py-8">
         <div class="flex flex-col lg:grid lg:grid-cols-3 gap-6 lg:gap-8">
           <div class="lg:col-span-2 space-y-6 lg:space-y-8">
-            <%= if @package.description && @package.description != @package.summary do %>
+            <% description = description_for(@package, @metadata) %>
+            <%= if description && description != @package.summary do %>
               <div class="bg-base-200 border border-base-300 p-4 lg:p-6 rounded-box">
                 <h2 class="text-lg lg:text-xl font-semibold text-base-content mb-3 lg:mb-4 flex items-center">
                   <.icon
@@ -101,10 +141,70 @@
                   /> Description
                 </h2>
                 <div class="prose prose-sm max-w-none text-base-content/80">
-                  <.markdown content={@package.description} />
+                  <.markdown content={description} />
                 </div>
               </div>
             <% end %>
+
+            <% {dependencies, more_dependencies} = runtime_dependencies(@metadata) %>
+            <% system_dependencies = external_dependencies(@metadata) %>
+
+            <div
+              :if={dependencies != [] or system_dependencies != []}
+              id="package-dependencies"
+              class="bg-base-200 border border-base-300 p-4 lg:p-6 rounded-box"
+            >
+              <h2 class="text-lg lg:text-xl font-semibold text-base-content mb-3 lg:mb-4 flex items-center">
+                <.icon
+                  name={:package}
+                  type={:outline}
+                  class="w-4 h-4 lg:w-5 lg:h-5 mr-2 text-primary"
+                /> Dependencies
+              </h2>
+
+              <div :if={dependencies != []} data-role="runtime-dependencies">
+                <h3 class="font-medium text-base-content mb-2 flex items-center">
+                  <.icon name={:terminal_2} type={:outline} class="size-4 mr-1.5 text-grey" />
+                  Runtime
+                </h3>
+                <ul class="flex flex-wrap gap-2">
+                  <li
+                    :for={dependency <- dependencies}
+                    class="bg-base-100 border border-base-300 px-2.5 py-1 rounded-field font-mono text-xs lg:text-sm text-base-content/80"
+                  >
+                    {dependency}
+                  </li>
+                </ul>
+                <p :if={more_dependencies > 0} class="mt-2 text-xs text-base-content/70">
+                  and {more_dependencies} more
+                </p>
+              </div>
+
+              <div
+                :if={system_dependencies != []}
+                data-role="system-dependencies"
+                class="mt-4 border-t border-base-300 pt-4"
+              >
+                <h3 class="font-medium text-base-content mb-1 flex items-center">
+                  <.icon name={:settings} type={:outline} class="size-4 mr-1.5 text-warning" />
+                  System requirements
+                </h3>
+                <p class="mb-2 text-sm text-base-content/70">
+                  These must be installed on the system before building.
+                </p>
+                <ul class="flex flex-wrap gap-2">
+                  <li
+                    :for={dependency <- system_dependencies}
+                    class="text-sm bg-base-100 border border-base-300 px-2.5 py-1 rounded-field font-mono text-xs lg:text-sm text-base-content/80 w-fit"
+                  >
+                    <span class="font-medium">{dependency.name}</span>
+                    <span :if={dependency.detail != ""} class="text-base-content/70">
+                      ({dependency.detail})
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            </div>
 
             <div class="bg-base-200 border border-base-300 p-4 lg:p-6 rounded-box">
               <h2 class="text-lg lg:text-xl font-semibold text-base-content mb-4 lg:mb-6 flex items-center">
@@ -115,10 +215,14 @@
                 /> Versions
               </h2>
 
+              <p :if={@package.releases == []} class="text-sm text-base-content/70">
+                No releases yet. This package will appear here once a version is published.
+              </p>
+
               <div class="space-y-3 lg:space-y-4">
                 <%= for release <- Enum.reverse(@package.releases) do %>
                   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-3 lg:py-4 px-3 lg:px-4 bg-base-100 rounded-box border border-base-300 hover:border-primary/30 transition-colors">
-                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                    <div class="flex flex-row md:flex-col justify-between gap-2">
                       <%= if @package.status == :active do %>
                         <.link
                           href={~p"/api/download/#{@package.name}/#{to_string(release.version)}"}
@@ -182,12 +286,13 @@
                 Package Overview
               </h3>
               <div class="space-y-3 lg:space-y-4">
-                <div class="flex justify-between items-center">
-                  <span class="text-sm lg:text-base text-base-content/70">Package Name</span>
-                  <span class="font-mono font-semibold text-sm lg:text-base text-base-content">
-                    {@package.name}
-                  </span>
-                </div>
+                <% lua = lua_requirement(@metadata) %>
+                <% platforms =
+                  @metadata["platforms"]
+                  |> List.wrap()
+                  |> Enum.filter(&is_binary/1)
+                  |> Enum.reject(&String.starts_with?(&1, "!")) %>
+                <% build = build_label(@metadata["build_type"]) %>
                 <div class="flex justify-between items-center">
                   <span class="text-sm lg:text-base text-base-content/70">Total Downloads</span>
                   <span class="font-semibold text-base lg:text-lg text-base-content">
@@ -200,10 +305,40 @@
                     {length(@package.releases)}
                   </span>
                 </div>
-                <div class="flex justify-between items-center">
-                  <span class="text-sm lg:text-base text-base-content/70">Created</span>
-                  <span class="font-medium text-sm lg:text-base text-base-content">
-                    {format_date(@package.inserted_at)}
+                <div
+                  :if={is_binary(@metadata["license"])}
+                  class="flex justify-between items-center gap-3"
+                >
+                  <span class="text-sm lg:text-base text-base-content/70">License</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {@metadata["license"]}
+                  </span>
+                </div>
+                <div :if={lua} class="flex justify-between items-center gap-3">
+                  <span class="text-sm lg:text-base text-base-content/70">Lua</span>
+                  <span class="font-mono font-medium text-sm lg:text-base text-base-content text-right">
+                    {lua}
+                  </span>
+                </div>
+                <div
+                  :if={platforms != []}
+                  class="flex justify-between items-center gap-3"
+                >
+                  <span class="text-sm lg:text-base text-base-content/70">Platforms</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {Enum.map_join(platforms, ", ", &platform_label/1)}
+                  </span>
+                </div>
+                <div :if={build} class="flex justify-between items-center gap-3">
+                  <span class="text-sm lg:text-base text-base-content/70">Build</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {build}
+                  </span>
+                </div>
+                <div class="flex justify-between items-center gap-3">
+                  <span class="text-sm lg:text-base text-base-content/70">Updated</span>
+                  <span class="font-medium text-sm lg:text-base text-base-content text-right">
+                    {format_date((latest_release(@package) || @package).inserted_at)}
                   </span>
                 </div>
               </div>
@@ -259,18 +394,74 @@
               <div class="space-y-3">
                 <div>
                   <div class="text-sm lg:text-base text-base-content/70 mb-2 flex items-center">
-                    <span class="font-medium">Via Lux</span>
+                    <span class="font-medium">Add to a Lux project</span>
                   </div>
-                  <div class="bg-base-300 p-3 font-mono text-xs lg:text-sm text-base-content rounded-box overflow-x-auto">
-                    lx install {@package.name}
+                  <div class="flex items-stretch bg-base-300 rounded-box">
+                    <code
+                      id="install-lx-add"
+                      phx-no-format
+                      class="flex-1 p-3 pr-0 font-mono text-xs lg:text-sm text-base-content overflow-x-auto"
+                    >lx add {@package.name}</code>
+                    <button
+                      type="button"
+                      phx-click={
+                        JS.dispatch("phx:clipcopy", to: "#install-lx-add")
+                        |> JS.push("copy_command")
+                      }
+                      class="btn btn-ghost btn-sm shrink-0 self-center mr-1.5"
+                      title="Copy to clipboard"
+                      aria-label="Copy lx add command"
+                    >
+                      <.icon name={:clipboard} type={:outline} class="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm lg:text-base text-base-content/70 mb-2 flex items-center">
+                    <span class="font-medium">Install globally with Lux</span>
+                  </div>
+                  <div class="flex items-stretch bg-base-300 rounded-box">
+                    <code
+                      id="install-lx-install"
+                      phx-no-format
+                      class="flex-1 p-3 pr-0 font-mono text-xs lg:text-sm text-base-content overflow-x-auto"
+                    >lx install {@package.name}</code>
+                    <button
+                      type="button"
+                      phx-click={
+                        JS.dispatch("phx:clipcopy", to: "#install-lx-install")
+                        |> JS.push("copy_command")
+                      }
+                      class="btn btn-ghost btn-sm shrink-0 self-center mr-1.5"
+                      title="Copy to clipboard"
+                      aria-label="Copy lx install command"
+                    >
+                      <.icon name={:clipboard} type={:outline} class="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
                 <div>
                   <div class="text-sm lg:text-base text-base-content/70 mb-2 flex items-center">
                     <span class="font-medium">Via LuaRocks</span>
                   </div>
-                  <div class="bg-base-300 p-3 font-mono text-xs lg:text-sm text-base-content rounded-box overflow-x-auto">
-                    luarocks install {@package.name}
+                  <div class="flex items-stretch bg-base-300 rounded-box">
+                    <code
+                      id="install-luarocks"
+                      phx-no-format
+                      class="flex-1 p-3 pr-0 font-mono text-xs lg:text-sm text-base-content overflow-x-auto"
+                    >luarocks install {@package.name}</code>
+                    <button
+                      type="button"
+                      phx-click={
+                        JS.dispatch("phx:clipcopy", to: "#install-luarocks")
+                        |> JS.push("copy_command")
+                      }
+                      class="btn btn-ghost btn-sm shrink-0 self-center mr-1.5"
+                      title="Copy to clipboard"
+                      aria-label="Copy luarocks install command"
+                    >
+                      <.icon name={:clipboard} type={:outline} class="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -348,12 +539,12 @@
           <div>
             <div class="mb-1 flex items-center justify-between gap-3">
               <label for="report-details" class="text-sm font-medium">
-                Details <span class="font-normal text-base-content/60">(optional)</span>
+                Details <span class="font-normal text-base-content/70">(optional)</span>
               </label>
               <span
                 id="report-details-count"
                 aria-live="polite"
-                class="text-xs text-base-content/60"
+                class="text-xs text-base-content/70"
               >
                 0/2000
               </span>

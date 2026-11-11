@@ -169,4 +169,267 @@ defmodule LuxpkgsWeb.PackageLive.ShowTest do
     assert html =~ "Too many reports. Try again later."
     assert Moderation.list_reports() == []
   end
+
+  test "shows license, Lua, platforms, build and updated date", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "license" => "MIT",
+        "lua" => ">= 5.1",
+        "platforms" => ["linux", "macosx", "!windows"],
+        "build_type" => "cmake"
+      }
+    )
+
+    {:ok, lv, html} = live(conn, ~p"/package/#{package.name}")
+
+    assert html =~ ">License<"
+    assert html =~ "MIT"
+    assert html =~ ">Lua<"
+    assert html =~ "&gt;= 5.1"
+    assert html =~ ">Platforms<"
+    assert html =~ "Linux, macOS"
+    refute html =~ "Not Windows"
+    assert html =~ ">Build<"
+    assert html =~ "cmake"
+    assert html =~ ">Updated<"
+    refute html =~ ">Created<"
+    refute html =~ ">Package Name<"
+    assert has_element?(lv, "h3", "Package Overview")
+  end
+
+  test "hides missing metadata rows and omits the builtin build type", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{"build_type" => "builtin", "platforms" => ["!windows"]}
+    )
+
+    {:ok, _lv, html} = live(conn, ~p"/package/#{package.name}")
+
+    refute html =~ ">License<"
+    refute html =~ ">Lua<"
+    refute html =~ ">Platforms<"
+    refute html =~ ">Build<"
+    assert html =~ ">Updated<"
+  end
+
+  test "shows homepage, issues and label chips from metadata", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "homepage" => "https://example.com/pkg",
+        "issues_url" => "http://example.com/pkg/issues",
+        "labels" => [
+          "testing",
+          "lua",
+          "a-very-long-label-that-should-be-truncated",
+          "testing",
+          "",
+          42
+        ]
+      }
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(
+             lv,
+             ~s{#package-links a[href="https://example.com/pkg"][target="_blank"][rel="noopener noreferrer"]},
+             "Homepage"
+           )
+
+    assert has_element?(
+             lv,
+             ~s{#package-links a[href="http://example.com/pkg/issues"][target="_blank"][rel="noopener noreferrer"]},
+             "Issues"
+           )
+
+    assert has_element?(lv, "#package-links span.badge.badge-soft", "testing")
+    assert has_element?(lv, "#package-links span.badge.badge-soft", "lua")
+    assert has_element?(lv, "#package-links span.badge.badge-soft", "a-very-long-label-tha...")
+  end
+
+  test "ignores unsafe URLs and caps label chips", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "homepage" => "javascript:alert(1)",
+        "issues_url" => "data:text/html,<script>alert(1)</script>",
+        "labels" => ["one", "two", "three", "four", "five", "six", "seven"]
+      }
+    )
+
+    {:ok, lv, html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "#package-links a")
+    refute html =~ "javascript:alert"
+    refute html =~ "data:text/html"
+
+    for label <- ~w(one two three four five six) do
+      assert has_element?(lv, "#package-links span.badge.badge-soft", label)
+    end
+
+    refute has_element?(lv, "#package-links span.badge.badge-soft", "seven")
+  end
+
+  test "hides the homepage, issues and label row when metadata is empty", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package, metadata: %{})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "#package-links")
+  end
+
+  test "lists runtime and system dependencies from metadata", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "dependencies" => ["lua >= 5.1", "penlight >= 1.9", 42, "", "penlight >= 1.9"],
+        "external_dependencies" => [
+          %{"name" => "OPENSSL", "header" => "openssl/ssl.h", "library" => "ssl"},
+          %{"name" => "ZLIB", "library" => "z"},
+          %{"name" => "BROKEN"},
+          "not-a-map"
+        ]
+      }
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "#package-dependencies")
+
+    assert has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="runtime-dependencies"] li},
+             "penlight >= 1.9"
+           )
+
+    refute has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="runtime-dependencies"] li},
+             "lua >= 5.1"
+           )
+
+    assert has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="system-dependencies"] li},
+             "OPENSSL"
+           )
+
+    assert has_element?(
+             lv,
+             ~s{#package-dependencies [data-role="system-dependencies"] li},
+             "openssl/ssl.h, ssl"
+           )
+  end
+
+  test "caps runtime dependencies and reports the remainder", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    dependencies = for i <- 1..25, do: "dep-#{i} >= 1.0"
+
+    release_fixture(scope, package, metadata: %{"dependencies" => dependencies})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "#package-dependencies li", "dep-20 >= 1.0")
+    refute has_element?(lv, "#package-dependencies li", "dep-21 >= 1.0")
+    assert has_element?(lv, "#package-dependencies", "and 5 more")
+  end
+
+  test "hides the dependencies card when there is no dependency metadata", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package, metadata: %{})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "#package-dependencies")
+  end
+
+  test "shows installation commands with copy buttons", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package)
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "#install-lx-add", "lx add #{package.name}")
+    assert has_element?(lv, "#install-lx-install", "lx install #{package.name}")
+    assert has_element?(lv, "#install-luarocks", "luarocks install #{package.name}")
+
+    assert has_element?(lv, ~s{button[phx-click][aria-label="Copy lx add command"]})
+    assert has_element?(lv, ~s{button[phx-click][aria-label="Copy lx install command"]})
+    assert has_element?(lv, ~s{button[phx-click][aria-label="Copy luarocks install command"]})
+  end
+
+  test "falls back to the detailed metadata description", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope, description: nil)
+    release_fixture(scope, package, metadata: %{"detailed" => "Detailed **metadata** text."})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "h2", "Description")
+    assert has_element?(lv, ".prose strong", "metadata")
+  end
+
+  test "sanitizes markdown in the description fallback", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope, description: nil)
+
+    release_fixture(scope, package,
+      metadata: %{"detailed" => "Text <script>alert('x')</script> more."}
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "h2", "Description")
+    refute has_element?(lv, "script")
+    assert render(lv) =~ "more."
+  end
+
+  test "hides the description card when it would repeat the summary", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope, description: nil, summary: "Same text")
+    release_fixture(scope, package, metadata: %{"detailed" => "Same text"})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "h2", "Description")
+  end
+
+  test "shows an empty state when the package has no releases", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(lv, "h2", "Versions")
+    assert render(lv) =~ "No releases yet."
+  end
+
+  test "flashes a confirmation after copying a command", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package)
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    html = render_hook(lv, "copy_command", %{})
+
+    assert html =~ "Command copied to clipboard!"
+  end
 end

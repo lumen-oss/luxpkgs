@@ -6,6 +6,7 @@ defmodule Luxpkgs.Packages.Release do
   schema "releases" do
     field :version, Luxpkgs.Types.Version
     field :rockspec_path, :string
+    field :metadata, :map, default: %{}
     field :rockspec, :any, virtual: true
     field :download_count, :integer, default: 0
     field :yanked_at, :utc_datetime
@@ -46,9 +47,10 @@ defmodule Luxpkgs.Packages.Release do
 
     case Application.get_env(:luxpkgs, :rockspec_verification_endpoint)
          |> Req.post(json: %{rockspec: rockspec, package: package, version: to_string(version)}) do
-      {:ok, %Req.Response{status: 200}} ->
+      {:ok, %Req.Response{status: 200, body: body}} ->
         changeset
         |> put_change(:rockspec_path, "#{package}-#{version}.rockspec")
+        |> put_change(:metadata, metadata_from(body))
 
       {:ok, %Req.Response{status: 400, body: %{"error" => "Invalid parameters"}}} ->
         Logger.error("Invalid parameters provided to rockspec verification endpoint",
@@ -61,4 +63,7 @@ defmodule Luxpkgs.Packages.Release do
         add_error(changeset, :rockspec, "Invalid rockspec")
     end
   end
+
+  defp metadata_from(%{"metadata" => metadata}) when is_map(metadata), do: metadata
+  defp metadata_from(_body), do: %{}
 end

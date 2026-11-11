@@ -25,6 +25,7 @@ defmodule LuxpkgsWeb.PackageLive.Show do
            |> assign(:not_found, false)
            |> assign(:owner, owner?)
            |> assign(:package, Luxpkgs.Repo.preload(package, :user))
+           |> assign(:metadata, latest_metadata(package))
            |> assign(:report_state, report_state(socket, package, owner?))
            |> assign(:page_title, package.name)}
         else
@@ -59,6 +60,10 @@ defmodule LuxpkgsWeb.PackageLive.Show do
     end
   end
 
+  def handle_event("copy_command", _params, socket) do
+    {:noreply, put_flash(socket, :info, "Command copied to clipboard!")}
+  end
+
   def handle_event("yank_release", %{"id" => id}, socket) do
     set_release_yanked(socket, id, :yank)
   end
@@ -79,6 +84,7 @@ defmodule LuxpkgsWeb.PackageLive.Show do
       {:noreply,
        socket
        |> assign(:package, package)
+       |> assign(:metadata, latest_metadata(package))
        |> put_flash(:info, if(action == :yank, do: "Release yanked.", else: "Release unyanked."))}
     else
       _ ->
@@ -168,4 +174,125 @@ defmodule LuxpkgsWeb.PackageLive.Show do
   end
 
   defp latest_release(package), do: Packages.latest_release(package)
+
+  defp description_for(package, metadata) do
+    [package.description, metadata["detailed"]]
+    |> Enum.find(&(is_binary(&1) and String.valid?(&1) and String.trim(&1) != ""))
+  end
+
+  defp latest_metadata(package) do
+    case latest_release(package) do
+      nil -> %{}
+      release -> release.metadata || %{}
+    end
+  end
+
+  defp lua_requirement(metadata) do
+    case metadata["lua"] do
+      lua when is_binary(lua) ->
+        lua
+
+      _ ->
+        metadata
+        |> Map.get("dependencies", [])
+        |> List.wrap()
+        |> Enum.find(&(is_binary(&1) and String.starts_with?(&1, "lua ")))
+    end
+  end
+
+  @platform_labels %{
+    "linux" => "Linux",
+    "macosx" => "macOS",
+    "windows" => "Windows",
+    "unix" => "Unix"
+  }
+
+  defp platform_label(platform), do: Map.get(@platform_labels, platform, platform)
+
+  defp build_label("builtin"), do: nil
+  defp build_label(build) when is_binary(build), do: build
+  defp build_label(_build), do: nil
+
+  defp safe_url(url) when is_binary(url) do
+    if String.valid?(url) do
+      case URI.new(url) do
+        {:ok, %URI{scheme: scheme, host: host}}
+        when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+          url
+
+        _ ->
+          nil
+      end
+    end
+  end
+
+  defp safe_url(_url), do: nil
+
+  @max_labels 6
+  @max_label_length 24
+
+  defp labels(metadata) do
+    metadata
+    |> Map.get("labels", [])
+    |> List.wrap()
+    |> Enum.filter(&(is_binary(&1) and String.valid?(&1)))
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.take(@max_labels)
+    |> Enum.map(&truncate_label/1)
+  end
+
+  defp truncate_label(label) do
+    if String.length(label) > @max_label_length do
+      String.slice(label, 0, @max_label_length - 3) <> "..."
+    else
+      label
+    end
+  end
+
+  @max_dependencies 20
+  @max_external_dependencies 10
+
+  defp runtime_dependencies(metadata) do
+    dependencies =
+      metadata
+      |> Map.get("dependencies", [])
+      |> List.wrap()
+      |> Enum.filter(&(is_binary(&1) and String.valid?(&1)))
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(&String.starts_with?(&1, "lua "))
+      |> Enum.uniq()
+
+    {Enum.take(dependencies, @max_dependencies), max(length(dependencies) - @max_dependencies, 0)}
+  end
+
+  defp external_dependencies(metadata) do
+    metadata
+    |> Map.get("external_dependencies", [])
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&external_dependency/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.take(@max_external_dependencies)
+  end
+
+  defp external_dependency(dependency) do
+    case Map.get(dependency, "name") do
+      name when is_binary(name) and name != "" ->
+        if String.valid?(name) do
+          detail =
+            [dependency["header"], dependency["library"]]
+            |> Enum.filter(&(is_binary(&1) and String.valid?(&1) and &1 != ""))
+            |> Enum.join(", ")
+
+          %{name: name, detail: detail}
+        end
+
+      _ ->
+        nil
+    end
+  end
 end

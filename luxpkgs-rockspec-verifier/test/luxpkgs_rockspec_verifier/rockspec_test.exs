@@ -544,4 +544,108 @@ defmodule LuxpkgsRockspecVerifier.RockspecTest do
       refute Rockspec.verify(rockspec, %{expected_name: "my-package", expected_version: "1.0.0"})
     end
   end
+
+  describe "metadata extraction" do
+    @metadata_rockspec """
+    rockspec_format = "3.0"
+    package = "meta"
+    version = "1.0.0"
+    source = { url = "git+https://example.com/meta.git", tag = "1.0.0" }
+    build = { type = "cmake" }
+    description = {
+      summary = "A package",
+      detailed = "# Meta\\n\\nLong description.",
+      license = "MIT",
+      homepage = "https://example.com",
+      issues_url = "https://example.com/issues",
+      labels = { "testing", "lua" }
+    }
+    lua = ">= 5.1"
+    supported_platforms = { "unix", "!windows" }
+    dependencies = { "lua >= 5.1", "foo >= 1.0" }
+    external_dependencies = {
+      OPENSSL = { header = "openssl/ssl.h", library = "ssl" },
+      ZLIB = "z"
+    }
+    """
+
+    test "verify_with_metadata returns nested rockspec fields" do
+      assert {:ok, metadata} =
+               Rockspec.verify_with_metadata(@metadata_rockspec, %{
+                 expected_name: "meta",
+                 expected_version: "1.0.0"
+               })
+
+      assert metadata["summary"] == "A package"
+      assert metadata["detailed"] == "# Meta\n\nLong description."
+      assert metadata["license"] == "MIT"
+      assert metadata["homepage"] == "https://example.com"
+      assert metadata["issues_url"] == "https://example.com/issues"
+      assert metadata["labels"] == ["testing", "lua"]
+      assert metadata["lua"] == ">= 5.1"
+      assert metadata["platforms"] == ["unix", "!windows"]
+      assert metadata["dependencies"] == ["lua >= 5.1", "foo >= 1.0"]
+
+      assert metadata["external_dependencies"] == [
+               %{"name" => "OPENSSL", "header" => "openssl/ssl.h", "library" => "ssl"},
+               %{"name" => "ZLIB", "library" => "z"}
+             ]
+
+      assert metadata["build_type"] == "cmake"
+    end
+
+    test "parse returns nested summary and description plus metadata" do
+      assert {:ok, parsed} = Rockspec.parse(@metadata_rockspec)
+
+      assert parsed.package == "meta"
+      assert parsed.version == "1.0.0"
+      assert parsed.summary == "A package"
+      assert parsed.description == "# Meta\n\nLong description."
+      assert parsed.metadata["license"] == "MIT"
+    end
+
+    test "parse falls back to top-level summary and description strings" do
+      rockspec = """
+      package = "legacy"
+      version = "1.0.0"
+      summary = "Legacy summary"
+      description = "Legacy description"
+      """
+
+      assert {:ok, parsed} = Rockspec.parse(rockspec)
+      assert parsed.summary == "Legacy summary"
+      assert parsed.description == "Legacy description"
+    end
+
+    test "metadata ignores fields with unexpected shapes" do
+      rockspec = """
+      rockspec_format = "3.0"
+      package = "meta"
+      version = "1.0.0"
+      source = { url = "https://example.com/meta.tar.gz" }
+      build = { type = "builtin" }
+      description = {
+        summary = "A package",
+        homepage = 123,
+        labels = "solo"
+      }
+      dependencies = { 1, "ok" }
+      supported_platforms = { true }
+      external_dependencies = { BROKEN = 1 }
+      """
+
+      assert {:ok, metadata} =
+               Rockspec.verify_with_metadata(rockspec, %{
+                 expected_name: "meta",
+                 expected_version: "1.0.0"
+               })
+
+      assert metadata["summary"] == "A package"
+      assert metadata["labels"] == ["solo"]
+      assert metadata["dependencies"] == ["ok"]
+      refute Map.has_key?(metadata, "homepage")
+      refute Map.has_key?(metadata, "platforms")
+      refute Map.has_key?(metadata, "external_dependencies")
+    end
+  end
 end
