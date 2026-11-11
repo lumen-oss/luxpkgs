@@ -216,4 +216,77 @@ defmodule LuxpkgsWeb.PackageLive.ShowTest do
     refute html =~ ">Build<"
     assert html =~ ">Updated<"
   end
+
+  test "shows homepage, issues and label chips from metadata", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "homepage" => "https://example.com/pkg",
+        "issues_url" => "http://example.com/pkg/issues",
+        "labels" => [
+          "testing",
+          "lua",
+          "a-very-long-label-that-should-be-truncated",
+          "testing",
+          "",
+          42
+        ]
+      }
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    assert has_element?(
+             lv,
+             ~s{#package-links a[href="https://example.com/pkg"][target="_blank"][rel="noopener noreferrer"]},
+             "Homepage"
+           )
+
+    assert has_element?(
+             lv,
+             ~s{#package-links a[href="http://example.com/pkg/issues"][target="_blank"][rel="noopener noreferrer"]},
+             "Issues"
+           )
+
+    assert has_element?(lv, "#package-links span.badge.badge-soft", "testing")
+    assert has_element?(lv, "#package-links span.badge.badge-soft", "lua")
+    assert has_element?(lv, "#package-links span.badge.badge-soft", "a-very-long-label-tha...")
+  end
+
+  test "ignores unsafe URLs and caps label chips", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+
+    release_fixture(scope, package,
+      metadata: %{
+        "homepage" => "javascript:alert(1)",
+        "issues_url" => "data:text/html,<script>alert(1)</script>",
+        "labels" => ["one", "two", "three", "four", "five", "six", "seven"]
+      }
+    )
+
+    {:ok, lv, html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "#package-links a")
+    refute html =~ "javascript:alert"
+    refute html =~ "data:text/html"
+
+    for label <- ~w(one two three four five six) do
+      assert has_element?(lv, "#package-links span.badge.badge-soft", label)
+    end
+
+    refute has_element?(lv, "#package-links span.badge.badge-soft", "seven")
+  end
+
+  test "hides the homepage, issues and label row when metadata is empty", %{conn: conn} do
+    scope = user_scope_fixture()
+    package = package_fixture(scope)
+    release_fixture(scope, package, metadata: %{})
+
+    {:ok, lv, _html} = live(conn, ~p"/package/#{package.name}")
+
+    refute has_element?(lv, "#package-links")
+  end
 end

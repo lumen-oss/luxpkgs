@@ -60,6 +60,45 @@
               <p class="text-base-content/80 text-base lg:text-lg leading-relaxed">
                 {@package.summary || "No description available"}
               </p>
+
+              <% homepage = safe_url(@metadata["homepage"]) %>
+              <% issues = safe_url(@metadata["issues_url"]) %>
+              <% labels = labels(@metadata) %>
+
+              <div
+                :if={homepage || issues || labels != []}
+                id="package-links"
+                class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2"
+              >
+                <.link
+                  :if={homepage}
+                  href={homepage}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-ghost btn-sm gap-1.5 px-2 text-base-content/70 hover:text-primary"
+                >
+                  <.icon name={:link} type={:outline} class="w-4 h-4" /> Homepage
+                </.link>
+                <.link
+                  :if={issues}
+                  href={issues}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-ghost btn-sm gap-1.5 px-2 text-base-content/70 hover:text-primary"
+                >
+                  <.icon name={:external_link} type={:outline} class="w-4 h-4" /> Issues
+                </.link>
+                <span
+                  :if={homepage && issues}
+                  class="hidden sm:block h-4 w-px bg-base-300"
+                ></span>
+                <div :if={labels != []} class="flex flex-wrap items-center gap-2">
+                  <.icon name={:tag} type={:outline} class="w-4 h-4 text-base-content/50" />
+                  <span :for={label <- labels} class="badge badge-soft badge-sm">
+                    {label}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-base-100 border border-base-300 rounded-box">

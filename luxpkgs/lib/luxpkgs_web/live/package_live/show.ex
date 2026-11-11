@@ -203,4 +203,42 @@ defmodule LuxpkgsWeb.PackageLive.Show do
   defp build_label("builtin"), do: nil
   defp build_label(build) when is_binary(build), do: build
   defp build_label(_build), do: nil
+
+  defp safe_url(url) when is_binary(url) do
+    if String.valid?(url) do
+      case URI.new(url) do
+        {:ok, %URI{scheme: scheme, host: host}}
+        when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+          url
+
+        _ ->
+          nil
+      end
+    end
+  end
+
+  defp safe_url(_url), do: nil
+
+  @max_labels 6
+  @max_label_length 24
+
+  defp labels(metadata) do
+    metadata
+    |> Map.get("labels", [])
+    |> List.wrap()
+    |> Enum.filter(&(is_binary(&1) and String.valid?(&1)))
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.take(@max_labels)
+    |> Enum.map(&truncate_label/1)
+  end
+
+  defp truncate_label(label) do
+    if String.length(label) > @max_label_length do
+      String.slice(label, 0, @max_label_length - 3) <> "..."
+    else
+      label
+    end
+  end
 end
