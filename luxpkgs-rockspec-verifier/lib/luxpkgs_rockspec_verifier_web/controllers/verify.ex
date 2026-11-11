@@ -15,18 +15,19 @@ defmodule LuxpkgsRockspecVerifierWeb.VerifyController do
              is_binary(expected_name) and
              is_binary(expected_version) and
              byte_size(rockspec) <= @max_rockspec_bytes do
-    case Rockspec.verify(rockspec, %{
+    case Rockspec.verify_with_metadata(rockspec, %{
            expected_name: expected_name,
            expected_version: expected_version
          }) do
-      true ->
+      {:ok, metadata} ->
         conn
         |> put_status(:ok)
         |> json(%{
-          message: "Rockspec is valid"
+          message: "Rockspec is valid",
+          metadata: metadata
         })
 
-      false ->
+      :error ->
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{

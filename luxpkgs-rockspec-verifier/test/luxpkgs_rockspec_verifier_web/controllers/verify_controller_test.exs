@@ -25,13 +25,24 @@ defmodule LuxpkgsRockspecVerifierWeb.VerifyControllerTest do
         version: "3.9.4-0"
       })
 
-    assert json_response(conn, 200) == %{"message" => "Rockspec is valid"}
+    assert %{"message" => "Rockspec is valid", "metadata" => metadata} =
+             json_response(conn, 200)
+
+    assert metadata["summary"] =~ "Kong is a scalable"
+    assert metadata["homepage"] == "https://konghq.com"
+    assert metadata["license"] == "Apache 2.0"
+    assert metadata["platforms"] == ["linux", "macosx"]
+    assert metadata["build_type"] == "builtin"
+    assert "inspect == 3.1.3" in metadata["dependencies"]
   end
 
   test "parses a real rockspec larger than the old 2.5 KB limit", %{conn: conn} do
     conn = json_post(conn, ~p"/parse", %{rockspec: kong_rockspec()})
 
-    assert %{"package" => "kong", "version" => "3.9.4-0"} = json_response(conn, 200)
+    assert %{"package" => "kong", "version" => "3.9.4-0", "metadata" => metadata} =
+             json_response(conn, 200)
+
+    assert metadata["license"] == "Apache 2.0"
   end
 
   test "rejects a rockspec larger than 48 KB", %{conn: conn} do
