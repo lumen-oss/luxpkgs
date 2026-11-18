@@ -11,6 +11,7 @@ defmodule LuxpkgsWeb.AdminLive.User do
   alias Luxpkgs.Repo
   alias LuxpkgsWeb.AdminAuth
   alias LuxpkgsWeb.UserAuth
+  alias LuxpkgsWeb.Provider
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -177,7 +178,7 @@ defmodule LuxpkgsWeb.AdminLive.User do
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <span class={suspension_badge(@user)}>{suspension_label(@user)}</span>
-            <span class="badge badge-ghost">{@user.provider}</span>
+            <span class="badge badge-ghost">{Provider.label(@user.provider)}</span>
           </div>
         </div>
 
@@ -206,7 +207,7 @@ defmodule LuxpkgsWeb.AdminLive.User do
               </div>
               <div>
                 <dt class="font-semibold">Provider</dt>
-                <dd>{@user.provider}</dd>
+                <dd>{Provider.label(@user.provider)}</dd>
               </div>
               <div>
                 <dt class="font-semibold">Joined</dt>

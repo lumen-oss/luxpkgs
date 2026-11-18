@@ -1,6 +1,7 @@
 defmodule LuxpkgsWeb.UserLive.ProvideEmail do
   use LuxpkgsWeb, :live_view
   alias Luxpkgs.Accounts.User
+  alias LuxpkgsWeb.Provider
 
   def mount(_params, session, socket) do
     oauth_data = session["oauth_signup_token"]
@@ -10,7 +11,7 @@ defmodule LuxpkgsWeb.UserLive.ProvideEmail do
     {:ok,
      socket
      |> assign(:oauth_data, oauth_data)
-     |> assign(:provider, oauth_data.provider |> to_string() |> String.capitalize())
+     |> assign(:provider, Provider.label(oauth_data.provider))
      |> assign(:form, to_form(changeset))
      |> assign(:page_title, "Provide Email")}
   end
@@ -50,11 +51,11 @@ defmodule LuxpkgsWeb.UserLive.ProvideEmail do
 
           <%!-- Provider indicator --%>
           <div class="flex items-center justify-center space-x-4 py-6 px-6 bg-base-100 border border-base-300 rounded-box">
-            <%= if @oauth_data.provider == :github do %>
-              <.icon name={:brand_github} type={:filled} class="size-5 text-base-content" />
-            <% else %>
-              <.icon name={:code} type={:outline} class="size-5 text-base-content" />
-            <% end %>
+            <.icon
+              name={Provider.icon(@oauth_data.provider)}
+              type={:outline}
+              class="size-5 text-base-content"
+            />
             <span class="text-sm font-medium text-base-content">
               Authenticated via {@provider}
             </span>

@@ -10,6 +10,9 @@ defmodule LuxpkgsWeb.UserLive.LoginTest do
 
       assert html =~ "Choose an OAuth Provider"
       assert html =~ "GitHub"
+      assert html =~ "AT Protocol"
+      assert html =~ ~s(id="atproto-login")
+      assert html =~ ~s(name="handle")
     end
   end
 

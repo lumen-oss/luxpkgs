@@ -208,6 +208,24 @@ defmodule Luxpkgs.AccountsTest do
       assert url == "https://avatars.githubusercontent.com/u/36456999"
     end
 
+    test "stores the DID and handle of an atproto account" do
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "someone.bsky.social",
+          email: unique_user_email()
+        }
+      }
+
+      assert {:ok, %User{provider: "atproto", username: "someone.bsky.social"} = user} =
+               Accounts.register_user(auth)
+
+      identity = Repo.get_by(UserIdentity, user_id: user.id, provider: "atproto")
+      assert identity.uid == "did:plc:atproto123"
+      assert identity.username == "someone.bsky.social"
+    end
+
     test "rejects avatar URLs from untrusted hosts" do
       auth = %Ueberauth.Auth{
         provider: "github",

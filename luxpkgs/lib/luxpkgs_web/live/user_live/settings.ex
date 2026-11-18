@@ -2,6 +2,7 @@ defmodule LuxpkgsWeb.UserLive.Settings do
   use LuxpkgsWeb, :live_view
 
   alias Luxpkgs.Accounts.TOTP
+  alias LuxpkgsWeb.Provider
 
   on_mount({LuxpkgsWeb.UserAuth, :require_sudo_mode})
 
@@ -99,7 +100,9 @@ defmodule LuxpkgsWeb.UserLive.Settings do
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-base-content/70">Auth provider</span>
-                  <span class="text-sm font-medium text-primary">GitHub</span>
+                  <span class="text-sm font-medium text-primary">{Provider.label(
+                    @current_scope.user.provider
+                  )}</span>
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-base-content/70">Account type</span>
@@ -402,23 +405,27 @@ defmodule LuxpkgsWeb.UserLive.Settings do
               </div>
               <div class="collapse-content px-4 sm:px-6">
                 <div class="space-y-6 pt-2">
-                  <div class="bg-base-100 border border-base-300 rounded-box p-4 sm:p-6 space-y-4">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3">
-                        <.icon name={:brand_github} type={:outline} class="w-5 h-5 text-success" />
-                        <div>
-                          <p class="text-sm font-medium text-base-content">GitHub Account</p>
-                          <p class="text-xs text-base-content/70">Authentication provider</p>
+                  <%= if @current_scope.user.provider == "github" do %>
+                    <div class="bg-base-100 border border-base-300 rounded-box p-4 sm:p-6 space-y-4">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                          <.icon name={:brand_github} type={:outline} class="w-5 h-5 text-success" />
+                          <div>
+                            <p class="text-sm font-medium text-base-content">GitHub Account</p>
+                            <p class="text-xs text-base-content/70">Authentication provider</p>
+                          </div>
                         </div>
+                        <span class="badge badge-success badge-sm">Connected</span>
                       </div>
-                      <span class="badge badge-success badge-sm">Connected</span>
                     </div>
-                  </div>
-                  <div class="divider"></div>
+                    <div class="divider"></div>
+                  <% end %>
                   <div class="flex flex-col sm:flex-row justify-end gap-2">
-                    <.link href={~p"/auth/github"} class="btn btn-neutral">
-                      <.icon name={:refresh} type={:outline} class="w-4 h-4" /> Sync Profile
-                    </.link>
+                    <%= if @current_scope.user.provider == "github" do %>
+                      <.link href={~p"/auth/github"} class="btn btn-neutral">
+                        <.icon name={:refresh} type={:outline} class="w-4 h-4" /> Sync Profile
+                      </.link>
+                    <% end %>
                     <button
                       class="btn btn-error"
                       onclick="delete_account_modal.showModal()"

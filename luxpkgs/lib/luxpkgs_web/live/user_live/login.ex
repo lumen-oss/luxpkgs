@@ -26,6 +26,39 @@ defmodule LuxpkgsWeb.UserLive.Login do
             >
               <.icon name={:brand_github} type={:filled} class="size-5" /> GitHub
             </.link>
+
+            <div class="divider text-sm text-base-content/60">or</div>
+
+            <.form
+              for={%{}}
+              id="atproto-login"
+              action={~p"/auth/atproto"}
+              method="post"
+              class="flex flex-col gap-3"
+            >
+              <label class="form-control w-full" for="atproto-handle">
+                <span class="label-text mb-1">AT Protocol handle</span>
+                <input
+                  id="atproto-handle"
+                  type="text"
+                  name="handle"
+                  class="input w-full"
+                  placeholder="you.bsky.social"
+                  autocomplete="username"
+                  required
+                />
+              </label>
+              <button
+                type="submit"
+                class="btn btn-neutral w-full"
+                phx-disable-with="Redirecting..."
+              >
+                <.icon name={:tangled} type={:outline} class="size-5" /> AT Protocol
+              </button>
+              <p class="text-sm text-base-content/60 text-center">
+                Bluesky, Tangled, or any atproto handle
+              </p>
+            </.form>
           </div>
         </div>
       </div>

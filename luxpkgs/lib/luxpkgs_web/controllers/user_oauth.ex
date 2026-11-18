@@ -6,12 +6,20 @@ defmodule LuxpkgsWeb.UserOauth do
   require Logger
 
   def callback(%{assigns: %{ueberauth_failure: %Ueberauth.Failure{}}} = conn, _params) do
-    conn
-    |> put_flash(:error, "Failed to authenticate")
-    |> redirect(to: ~p"/")
+    handle_failure(conn)
   end
 
   def callback(%{assigns: %{ueberauth_auth: %Ueberauth.Auth{} = auth}} = conn, _params) do
+    handle_auth(conn, auth)
+  end
+
+  def handle_failure(conn, message \\ "Failed to authenticate") do
+    conn
+    |> put_flash(:error, message)
+    |> redirect(to: ~p"/")
+  end
+
+  def handle_auth(conn, %Ueberauth.Auth{} = auth) do
     case Luxpkgs.Accounts.get_user_by_auth(auth) do
       %Luxpkgs.Accounts.User{} = user ->
         Luxpkgs.Accounts.sync_profile(user, auth)
@@ -35,6 +43,7 @@ defmodule LuxpkgsWeb.UserOauth do
       nil when is_nil(auth.info.email) ->
         auth_stripped = %{
           provider: auth.provider,
+          uid: auth.uid,
           info: %{
             nickname: auth.info.nickname,
             name: auth.info.name,
@@ -93,6 +102,7 @@ defmodule LuxpkgsWeb.UserOauth do
       true ->
         ueberauth = %Ueberauth.Auth{
           provider: auth.provider,
+          uid: auth[:uid],
           info: %Ueberauth.Auth.Info{
             nickname: auth.info.nickname,
             name: auth.info.name,

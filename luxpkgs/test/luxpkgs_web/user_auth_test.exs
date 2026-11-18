@@ -511,5 +511,25 @@ defmodule LuxpkgsWeb.UserAuthTest do
       assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
                "Failed to create account. Please check your email."
     end
+
+    test "keeps the DID of an atproto signup", %{conn: conn} do
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_signup_token, %{
+          provider: :atproto,
+          uid: "did:plc:signup123",
+          info: %{nickname: "newcomer.test", name: nil, email: nil, image: nil}
+        })
+        |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => unique_user_email()}})
+
+      assert redirected_to(conn) == ~p"/setup-totp"
+
+      user = Accounts.get_user_by_username("newcomer.test")
+      assert user.provider == "atproto"
+
+      identity = Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity, user_id: user.id)
+      assert identity.uid == "did:plc:signup123"
+    end
   end
 end
