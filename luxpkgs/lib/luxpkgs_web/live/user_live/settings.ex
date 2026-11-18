@@ -9,6 +9,7 @@ defmodule LuxpkgsWeb.UserLive.Settings do
   def mount(_params, _session, socket) do
     user = socket.assigns.current_scope.user
     bio_count = (user.bio || "") |> String.length()
+    identities = Luxpkgs.Accounts.list_identities(user)
 
     {:ok,
      socket
@@ -19,6 +20,8 @@ defmodule LuxpkgsWeb.UserLive.Settings do
      |> assign(:tfa_open, false)
      |> assign(:account_open, true)
      |> assign(:backup_codes_remaining, TOTP.backup_codes_remaining(user))
+     |> assign(:identities, identities)
+     |> assign(:missing_providers, ~w(github atproto) -- Enum.map(identities, & &1.provider))
      |> maybe_reveal_backup_codes(user)}
   end
 
@@ -405,21 +408,76 @@ defmodule LuxpkgsWeb.UserLive.Settings do
               </div>
               <div class="collapse-content px-4 sm:px-6">
                 <div class="space-y-6 pt-2">
-                  <%= if @current_scope.user.provider == "github" do %>
-                    <div class="bg-base-100 border border-base-300 rounded-box p-4 sm:p-6 space-y-4">
-                      <div class="flex items-center justify-between gap-3">
-                        <div class="flex items-center gap-3">
-                          <.icon name={:brand_github} type={:outline} class="w-5 h-5 text-success" />
-                          <div>
-                            <p class="text-sm font-medium text-base-content">GitHub Account</p>
-                            <p class="text-xs text-base-content/70">Authentication provider</p>
-                          </div>
-                        </div>
-                        <span class="badge badge-success badge-sm">Connected</span>
+                  <div class="bg-base-100 border border-base-300 rounded-box p-4 sm:p-6 space-y-4">
+                    <div class="flex items-center gap-3">
+                      <.icon name={:users} type={:outline} class="w-5 h-5 text-primary" />
+                      <div>
+                        <p class="text-sm font-medium text-base-content">Linked accounts</p>
+                        <p class="text-xs text-base-content/70">Sign in with any linked account</p>
                       </div>
                     </div>
-                    <div class="divider"></div>
-                  <% end %>
+
+                    <div
+                      :for={identity <- @identities}
+                      class="flex items-center justify-between gap-3"
+                    >
+                      <div class="flex items-center gap-3">
+                        <.icon
+                          name={Provider.icon(identity.provider)}
+                          type={:outline}
+                          class="w-5 h-5"
+                        />
+                        <div>
+                          <p class="text-sm font-medium text-base-content">
+                            {Provider.label(identity.provider)}
+                          </p>
+                          <p class="text-xs text-base-content/70">{identity.username}</p>
+                        </div>
+                      </div>
+                      <span class="badge badge-success badge-sm">Connected</span>
+                    </div>
+
+                    <%= if "github" in @missing_providers do %>
+                      <.form
+                        for={%{}}
+                        action={~p"/settings/identities/github"}
+                        method="post"
+                        class="pt-2"
+                      >
+                        <button type="submit" class="btn btn-neutral btn-sm">
+                          <.icon name={:brand_github} type={:filled} class="w-4 h-4" /> Connect GitHub
+                        </button>
+                      </.form>
+                    <% end %>
+
+                    <%= if "atproto" in @missing_providers do %>
+                      <.form
+                        for={%{}}
+                        id="link-atproto-form"
+                        action={~p"/settings/identities/atproto"}
+                        method="post"
+                        class="pt-2 space-y-2"
+                      >
+                        <label class="label-text" for="link-atproto-handle">
+                          Link an AT Protocol account
+                        </label>
+                        <div class="flex gap-2">
+                          <input
+                            id="link-atproto-handle"
+                            type="text"
+                            name="handle"
+                            class="input input-bordered input-sm flex-1"
+                            placeholder="you.bsky.social"
+                            required
+                          />
+                          <button type="submit" class="btn btn-neutral btn-sm">
+                            <.icon name={:tangled} type={:outline} class="w-4 h-4" /> Connect
+                          </button>
+                        </div>
+                      </.form>
+                    <% end %>
+                  </div>
+                  <div class="divider"></div>
                   <div class="flex flex-col sm:flex-row justify-end gap-2">
                     <%= if @current_scope.user.provider == "github" do %>
                       <.link href={~p"/auth/github"} class="btn btn-neutral">

@@ -398,6 +398,65 @@ defmodule Luxpkgs.AccountsTest do
     end
   end
 
+  describe "link_identity/2" do
+    test "links an identity from another provider" do
+      user = user_fixture()
+
+      assert {:ok, :linked} =
+               Accounts.link_identity(user, atproto_auth("did:plc:linked1", "linked.bsky.social"))
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
+      assert identity.uid == "did:plc:linked1"
+      assert identity.username == "linked.bsky.social"
+    end
+
+    test "refuses an identity that belongs to another user" do
+      owner = user_fixture()
+      user = user_fixture()
+      auth = atproto_auth("did:plc:owned1", "owned.bsky.social")
+
+      assert {:ok, :linked} = Accounts.link_identity(owner, auth)
+      assert {:error, :taken} = Accounts.link_identity(user, auth)
+      refute Repo.get_by(UserIdentity, user_id: user.id, provider: "atproto")
+    end
+
+    test "reports an identity already linked to the same user" do
+      user = user_fixture()
+      auth = atproto_auth("did:plc:again1", "again.bsky.social")
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+      assert {:ok, :already_linked} = Accounts.link_identity(user, auth)
+
+      identities =
+        Repo.all(
+          from i in UserIdentity,
+            where: i.user_id == ^user.id and i.provider == "atproto"
+        )
+
+      assert length(identities) == 1
+    end
+
+    test "refuses a second account of an already linked provider" do
+      user = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: :github,
+        uid: "9999",
+        info: %Ueberauth.Auth.Info{nickname: "other_handle", email: nil}
+      }
+
+      assert {:error, :different_identity} = Accounts.link_identity(user, auth)
+    end
+
+    defp atproto_auth(uid, handle) do
+      %Ueberauth.Auth{
+        provider: :atproto,
+        uid: uid,
+        info: %Ueberauth.Auth.Info{nickname: handle, email: nil}
+      }
+    end
+  end
+
   describe "update_bio/2" do
     test "updates the user's bio" do
       user = user_fixture()

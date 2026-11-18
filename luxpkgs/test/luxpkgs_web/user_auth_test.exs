@@ -481,6 +481,90 @@ defmodule LuxpkgsWeb.UserAuthTest do
     end
   end
 
+  describe "callback/2 with a link intent" do
+    test "links the identity to the user in the session", %{conn: conn} do
+      user = user_fixture()
+      auth = Luxpkgs.AtpOauth.auth("did:plc:intent1", "intent.bsky.social")
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user.id)
+        |> put_session(:oauth_link_at, System.os_time(:second))
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/settings"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Account linked."
+      refute get_session(conn, :oauth_link_user_id)
+      refute get_session(conn, :oauth_link_at)
+
+      assert Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity,
+               user_id: user.id,
+               provider: "atproto"
+             )
+    end
+
+    test "ignores an intent older than ten minutes", %{conn: conn} do
+      user = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: :github,
+        uid: "4242",
+        info: %Ueberauth.Auth.Info{nickname: user.username, email: user.email}
+      }
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user.id)
+        |> put_session(:oauth_link_at, System.os_time(:second) - 601)
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/setup-totp"
+      assert get_session(conn, :pending_totp_user_id) == user.id
+      refute get_session(conn, :oauth_link_user_id)
+    end
+
+    test "clears the intent when the oauth callback fails", %{conn: conn} do
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user_fixture().id)
+        |> put_session(:oauth_link_at, System.os_time(:second))
+        |> LuxpkgsWeb.UserOauth.handle_failure()
+
+      assert redirected_to(conn) == ~p"/"
+      refute get_session(conn, :oauth_link_user_id)
+    end
+
+    test "refuses an identity owned by another user", %{conn: conn} do
+      owner = user_fixture()
+      user = user_fixture()
+      auth = Luxpkgs.AtpOauth.auth("did:plc:taken1", "taken.bsky.social")
+      {:ok, :linked} = Accounts.link_identity(owner, auth)
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user.id)
+        |> put_session(:oauth_link_at, System.os_time(:second))
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/settings"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "That account is already linked to another user."
+
+      refute Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity,
+               user_id: user.id,
+               provider: "atproto"
+             )
+    end
+  end
+
   describe "complete_signup/2" do
     test "redirects to the login page when the signup session is gone", %{conn: conn} do
       conn =

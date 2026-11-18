@@ -61,6 +61,40 @@ defmodule LuxpkgsWeb.UserLive.SettingsTest do
       refute bio =~ "evil.com"
     end
 
+    test "shows linked accounts and the providers left to link", %{conn: conn} do
+      user = user_fixture()
+
+      {:ok, lv, html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/settings")
+
+      assert html =~ "Linked accounts"
+      assert html =~ "GitHub"
+      assert html =~ user.username
+      assert has_element?(lv, "#link-atproto-form")
+      refute html =~ "Connect GitHub"
+    end
+
+    test "hides the connect form of an already linked provider", %{conn: conn} do
+      user = user_fixture()
+
+      {:ok, :linked} =
+        Luxpkgs.Accounts.link_identity(
+          user,
+          Luxpkgs.AtpOauth.auth("did:plc:settings1", "settings.bsky.social")
+        )
+
+      {:ok, lv, html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/settings")
+
+      assert html =~ "AT Protocol"
+      assert html =~ "settings.bsky.social"
+      refute has_element?(lv, "#link-atproto-form")
+    end
+
     test "redirects if user is not logged in", %{conn: conn} do
       assert {:error, redirect} = live(conn, ~p"/settings")
 

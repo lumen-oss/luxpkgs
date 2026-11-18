@@ -15,11 +15,21 @@ defmodule LuxpkgsWeb.UserOauth do
 
   def handle_failure(conn, message \\ "Failed to authenticate") do
     conn
+    |> clear_link_intent()
     |> put_flash(:error, message)
     |> redirect(to: ~p"/")
   end
 
   def handle_auth(conn, %Ueberauth.Auth{} = auth) do
+    {intent_user, conn} = take_link_intent(conn)
+
+    case intent_user do
+      %Luxpkgs.Accounts.User{} = user -> handle_link(conn, user, auth)
+      nil -> handle_login(conn, auth)
+    end
+  end
+
+  defp handle_login(conn, %Ueberauth.Auth{} = auth) do
     case Luxpkgs.Accounts.get_user_by_auth(auth) do
       %Luxpkgs.Accounts.User{} = user ->
         Luxpkgs.Accounts.sync_profile(user, auth)
@@ -88,6 +98,75 @@ defmodule LuxpkgsWeb.UserOauth do
   end
 
   defp pds_endpoint(_auth), do: nil
+
+  @link_intent_ttl 600
+
+  defp take_link_intent(conn) do
+    user_id = get_session(conn, :oauth_link_user_id)
+    at = get_session(conn, :oauth_link_at)
+    conn = clear_link_intent(conn)
+
+    user =
+      with true <- is_integer(user_id),
+           %Luxpkgs.Accounts.User{} = user <- Luxpkgs.Accounts.get_user(user_id),
+           true <- is_integer(at),
+           true <- System.os_time(:second) - at <= @link_intent_ttl do
+        user
+      else
+        _ -> nil
+      end
+
+    {user, conn}
+  end
+
+  defp clear_link_intent(conn) do
+    conn
+    |> delete_session(:oauth_link_user_id)
+    |> delete_session(:oauth_link_at)
+  end
+
+  # A link intent only adds an identity to the session user; it never logs in.
+  defp handle_link(conn, %Luxpkgs.Accounts.User{} = user, %Ueberauth.Auth{} = auth) do
+    if Luxpkgs.Accounts.User.suspended?(user) do
+      conn
+      |> put_flash(:error, "Account suspended.")
+      |> redirect(to: ~p"/")
+    else
+      case Luxpkgs.Accounts.link_identity(user, auth) do
+        {:ok, :linked} ->
+          conn
+          |> put_flash(:info, "Account linked.")
+          |> redirect(to: ~p"/settings")
+
+        {:ok, :already_linked} ->
+          conn
+          |> put_flash(:info, "That account is already linked.")
+          |> redirect(to: ~p"/settings")
+
+        {:error, :taken} ->
+          conn
+          |> put_flash(:error, "That account is already linked to another user.")
+          |> redirect(to: ~p"/settings")
+
+        {:error, :different_identity} ->
+          conn
+          |> put_flash(
+            :error,
+            "You already linked a different #{LuxpkgsWeb.Provider.label(auth.provider)} account."
+          )
+          |> redirect(to: ~p"/settings")
+
+        {:error, changeset} ->
+          Logger.error(
+            "Could not link an identity for user #{user.id}: #{inspect(changeset.errors)}"
+          )
+
+          conn
+          |> put_flash(:error, "Could not link that account. Please try again.")
+          |> redirect(to: ~p"/settings")
+      end
+    end
+  end
 
   def complete_signup(conn, %{"user" => %{"email" => email}}) do
     auth = get_session(conn, :oauth_signup_token)

@@ -239,6 +239,55 @@ defmodule Luxpkgs.Accounts do
     :ok
   end
 
+  @doc """
+  Lists the identities linked to a user.
+  """
+  def list_identities(%User{id: user_id}) do
+    Repo.all(from i in UserIdentity, where: i.user_id == ^user_id, order_by: i.provider)
+  end
+
+  @doc """
+  Links an authenticated identity to an existing user.
+
+  Returns an error when the identity belongs to someone else, or when the
+  user already linked a different account for the same provider.
+  """
+  def link_identity(%User{} = user, %Ueberauth.Auth{} = auth) do
+    provider = to_string(auth.provider)
+
+    case find_identity(provider, auth) do
+      %UserIdentity{user_id: user_id} when user_id == user.id ->
+        sync_profile(user, auth)
+        {:ok, :already_linked}
+
+      %UserIdentity{} ->
+        {:error, :taken}
+
+      nil ->
+        if Repo.get_by(UserIdentity, user_id: user.id, provider: provider) do
+          {:error, :different_identity}
+        else
+          insert_identity(user, auth)
+        end
+    end
+  end
+
+  defp insert_identity(%User{} = user, %Ueberauth.Auth{} = auth) do
+    avatar_opts = avatar_hosts(auth)
+
+    %UserIdentity{user_id: user.id}
+    |> UserIdentity.changeset(identity_attrs(auth), avatar_opts)
+    |> Repo.insert()
+    |> case do
+      {:ok, identity} ->
+        sync_display_copy(user, identity, avatar_opts)
+        {:ok, :linked}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
+
   defp upsert_identity(%User{} = user, %Ueberauth.Auth{} = auth, avatar_opts) do
     identity =
       Repo.get_by(UserIdentity, user_id: user.id, provider: to_string(auth.provider)) ||
