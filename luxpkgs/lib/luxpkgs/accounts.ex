@@ -4,10 +4,12 @@ defmodule Luxpkgs.Accounts do
   """
 
   import Ecto.Query, warn: false
+  require Logger
+
   alias Ecto.Multi
   alias Luxpkgs.Repo
 
-  alias Luxpkgs.Accounts.{User, UserToken, TotpSecret, TotpBackupCode}
+  alias Luxpkgs.Accounts.{User, UserIdentity, UserToken, TotpSecret, TotpBackupCode}
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRow
   alias Luxpkgs.Audit
@@ -36,28 +38,75 @@ defmodule Luxpkgs.Accounts do
   end
 
   def get_user_by_auth(%Ueberauth.Auth{} = auth) do
-    # First, try to find user by provider + username
-    # This handles cases where GitHub users don't have public emails
     provider = to_string(auth.provider)
 
-    # Goddamn GitHub naming conventions calling the account name "nickname", and the account nickname "name".
-    # NOTE: this might need refactoring later once we add support for more providers.
-    username = auth.info.nickname
-
-    case Repo.get_by(User, provider: provider, username: username) do
-      %User{} = user ->
-        user
+    case find_identity(provider, auth) do
+      %UserIdentity{} = identity ->
+        remember_uid(identity, normalize_uid(auth.uid))
+        Repo.get(User, identity.user_id)
 
       nil ->
-        # Fallback to email-based lookup for legacy compatibility
-        # NOTE: I'm unsure whether we should keep this fallback or not, but it's here for now.
-        if auth.info.email do
-          get_user_by_email(auth.info.email)
-        else
-          nil
-        end
+        nil
     end
   end
+
+  defp find_identity(provider, %Ueberauth.Auth{} = auth) do
+    identity_by_uid(provider, normalize_uid(auth.uid)) ||
+      identity_by_username(provider, auth.info.nickname) ||
+      identity_by_email(provider, auth.info.email)
+  end
+
+  defp identity_by_uid(_provider, nil), do: nil
+
+  defp identity_by_uid(provider, uid), do: Repo.get_by(UserIdentity, provider: provider, uid: uid)
+
+  # GitHub sends its numeric account id as an integer, while uids are strings.
+  defp normalize_uid(uid) when is_integer(uid), do: Integer.to_string(uid)
+  defp normalize_uid(uid), do: uid
+
+  # GitHub calls the account name "nickname". A username match may only claim an
+  # identity that has no uid yet, so a reclaimed handle cannot take over an account.
+  defp identity_by_username(_provider, nil), do: nil
+
+  defp identity_by_username(provider, username) do
+    Repo.one(
+      from i in UserIdentity,
+        where: i.provider == ^provider and i.username == ^username and is_nil(i.uid)
+    )
+  end
+
+  # Backfilled identities have no uid. The same-provider email fallback lets its
+  # owner claim one once; a row from another provider must never be matched.
+  defp identity_by_email(_provider, nil), do: nil
+
+  defp identity_by_email(provider, email) do
+    with %User{id: user_id} <- Repo.get_by(User, provider: provider, email: email),
+         %UserIdentity{uid: nil} = identity <-
+           Repo.get_by(UserIdentity, user_id: user_id, provider: provider) do
+      identity
+    else
+      _ -> nil
+    end
+  end
+
+  defp remember_uid(%UserIdentity{uid: nil} = identity, uid) when is_binary(uid) do
+    identity
+    |> Ecto.Changeset.change(uid: uid)
+    |> Repo.update()
+    |> case do
+      {:ok, _identity} ->
+        :ok
+
+      {:error, changeset} ->
+        Logger.error(
+          "Could not store the OAuth uid on identity #{identity.id}: #{inspect(changeset.errors)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp remember_uid(_identity, _uid), do: :ok
 
   def user_count do
     Repo.one(from(u in User, select: count(u.id)))
@@ -167,9 +216,229 @@ defmodule Luxpkgs.Accounts do
       {:ok, %User{}}
   """
   def register_user(%Ueberauth.Auth{} = auth) do
-    %User{}
-    |> User.oauth_changeset(auth)
+    avatar_opts = avatar_hosts(auth)
+
+    Multi.new()
+    |> Multi.insert(:user, User.oauth_changeset(%User{}, auth, avatar_opts))
+    |> Multi.insert(:identity, fn %{user: user} ->
+      UserIdentity.changeset(%UserIdentity{user_id: user.id}, identity_attrs(auth), avatar_opts)
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: user}} -> {:ok, user}
+      {:error, _step, changeset, _changes} -> {:error, changeset}
+    end
+  end
+
+  @doc """
+  Refreshes the identity and the display copy on the user after a login.
+  """
+  def sync_profile(%User{} = user, %Ueberauth.Auth{} = auth) do
+    avatar_opts = avatar_hosts(auth)
+
+    with %UserIdentity{} = identity <- upsert_identity(user, auth, avatar_opts) do
+      sync_display_copy(user, identity, avatar_opts)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Lists the identities linked to a user.
+  """
+  def list_identities(%User{id: user_id}) do
+    Repo.all(from i in UserIdentity, where: i.user_id == ^user_id, order_by: i.provider)
+  end
+
+  @doc """
+  Links an authenticated identity to an existing user.
+
+  Returns an error when the identity belongs to someone else, or when the
+  user already linked a different account for the same provider.
+  """
+  def link_identity(%User{} = user, %Ueberauth.Auth{} = auth) do
+    provider = to_string(auth.provider)
+
+    case find_identity(provider, auth) do
+      %UserIdentity{user_id: user_id} when user_id == user.id ->
+        sync_profile(user, auth)
+        {:ok, :already_linked}
+
+      %UserIdentity{} ->
+        {:error, :taken}
+
+      nil ->
+        if Repo.get_by(UserIdentity, user_id: user.id, provider: provider) do
+          {:error, :different_identity}
+        else
+          insert_identity(user, auth)
+        end
+    end
+  end
+
+  defp insert_identity(%User{} = user, %Ueberauth.Auth{} = auth) do
+    avatar_opts = avatar_hosts(auth)
+
+    %UserIdentity{user_id: user.id}
+    |> UserIdentity.changeset(identity_attrs(auth), avatar_opts)
     |> Repo.insert()
+    |> case do
+      {:ok, identity} ->
+        sync_display_copy(user, identity, avatar_opts)
+        {:ok, :linked}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
+
+  @doc """
+  Unlinks one of the user's identities.
+
+  Refuses to remove the last identity. When the removed identity was primary,
+  the remaining identity becomes the primary and the display copy follows.
+  """
+  def unlink_identity(%User{} = user, provider) when is_binary(provider) do
+    identities = list_identities(user)
+    identity = Enum.find(identities, &(&1.provider == provider))
+
+    cond do
+      is_nil(identity) ->
+        {:error, :not_linked}
+
+      length(identities) < 2 ->
+        {:error, :last_identity}
+
+      true ->
+        attrs = display_after_unlink(user, identity, List.delete(identities, identity))
+
+        Multi.new()
+        |> Multi.delete(:identity, identity)
+        |> Multi.update(:user, Ecto.Changeset.change(user, attrs))
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{user: user}} -> {:ok, user}
+          {:error, _step, _changeset, _changes} -> {:error, :unlink_failed}
+        end
+    end
+  end
+
+  defp upsert_identity(%User{} = user, %Ueberauth.Auth{} = auth, avatar_opts) do
+    identity =
+      Repo.get_by(UserIdentity, user_id: user.id, provider: to_string(auth.provider)) ||
+        %UserIdentity{user_id: user.id}
+
+    attrs = identity_attrs(auth)
+    # A stored uid is authoritative; a later login must never replace it.
+    attrs = if identity.uid, do: Map.delete(attrs, :uid), else: attrs
+
+    identity
+    |> UserIdentity.changeset(attrs, avatar_opts)
+    |> Repo.insert_or_update()
+    |> case do
+      {:ok, identity} ->
+        identity
+
+      {:error, changeset} ->
+        Logger.error(
+          "Could not sync the identity of user #{user.id}: #{inspect(changeset.errors)}"
+        )
+
+        nil
+    end
+  end
+
+  # The users columns are the display copy of the primary identity, except for
+  # the avatar, which follows the selected source.
+  defp sync_display_copy(%User{} = user, %UserIdentity{} = identity, avatar_opts) do
+    attrs =
+      cond do
+        user.provider == identity.provider and user.avatar_source in [nil, identity.provider] ->
+          %{username: identity.username, aka: identity.aka, avatar_url: identity.avatar_url}
+
+        user.provider == identity.provider ->
+          %{username: identity.username, aka: identity.aka}
+
+        user.avatar_source == identity.provider ->
+          %{avatar_url: identity.avatar_url}
+
+        true ->
+          nil
+      end
+
+    if attrs, do: update_display_copy(user, attrs, avatar_opts), else: user
+  end
+
+  defp update_display_copy(%User{} = user, attrs, avatar_opts) do
+    changeset = Ecto.Changeset.change(user, attrs)
+
+    # The avatar is only rechecked when this login writes a new one; the stored
+    # one was already validated against its provider's host.
+    changeset =
+      if Map.has_key?(attrs, :avatar_url) do
+        User.validate_avatar_url(changeset, avatar_opts)
+      else
+        changeset
+      end
+
+    changeset
+    |> Repo.update()
+    |> case do
+      {:ok, user} ->
+        user
+
+      {:error, changeset} ->
+        Logger.error(
+          "Could not sync the profile of user #{user.id}: #{inspect(changeset.errors)}"
+        )
+
+        user
+    end
+  end
+
+  # Unlinking copies the stored avatars, which were validated when they were written.
+  defp display_after_unlink(%User{} = user, %UserIdentity{} = removed, remaining) do
+    primary =
+      if user.provider == removed.provider do
+        hd(remaining)
+      else
+        Enum.find(remaining, &(&1.provider == user.provider))
+      end
+
+    avatar_source = if user.avatar_source == removed.provider, do: nil, else: user.avatar_source
+    source = Enum.find(remaining, &(&1.provider == avatar_source)) || primary
+
+    %{
+      provider: primary.provider,
+      username: primary.username,
+      aka: primary.aka,
+      avatar_url: source && source.avatar_url,
+      avatar_source: avatar_source
+    }
+  end
+
+  # atproto avatars are served by the PDS discovered from the authenticated DID,
+  # so only that host becomes trusted, and only for atproto logins.
+  defp avatar_hosts(%Ueberauth.Auth{provider: :atproto, extra: extra}) do
+    with %Ueberauth.Auth.Extra{raw_info: raw_info} when is_map(raw_info) <- extra,
+         pds_endpoint when is_binary(pds_endpoint) <- raw_info[:pds_endpoint],
+         %URI{host: host} when is_binary(host) <- URI.parse(pds_endpoint) do
+      [extra_hosts: [host]]
+    else
+      _ -> []
+    end
+  end
+
+  defp avatar_hosts(_auth), do: []
+
+  defp identity_attrs(%Ueberauth.Auth{} = auth) do
+    %{
+      provider: to_string(auth.provider),
+      uid: normalize_uid(auth.uid),
+      username: auth.info.nickname,
+      aka: auth.info.name,
+      avatar_url: auth.info.image
+    }
   end
 
   ## Settings
@@ -182,6 +451,30 @@ defmodule Luxpkgs.Accounts do
     |> Ecto.Changeset.change(%{avatar_url: avatar_url})
     |> User.validate_avatar_url()
     |> Repo.update()
+  end
+
+  @doc """
+  Chooses which linked identity supplies the displayed avatar.
+
+  Copies the stored URL, so no network call is made.
+  """
+  def update_avatar_source(%User{} = user, provider) do
+    identities = list_identities(user)
+
+    if provider && not Enum.any?(identities, &(&1.provider == provider)) do
+      {:error, :not_linked}
+    else
+      source =
+        Enum.find(identities, &(&1.provider == provider)) ||
+          Enum.find(identities, &(&1.provider == user.provider))
+
+      user
+      |> Ecto.Changeset.change(%{
+        avatar_source: provider,
+        avatar_url: source && source.avatar_url
+      })
+      |> Repo.update()
+    end
   end
 
   def update_bio(%User{} = user, bio) do

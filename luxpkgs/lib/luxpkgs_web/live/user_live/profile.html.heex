@@ -29,7 +29,7 @@
               <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-base-content">
                 {@user.aka || @user.username}
               </h1>
-              <span class="badge badge-primary badge-sm">{@user.provider}</span>
+              <span class="badge badge-primary badge-sm">{Provider.label(@user.provider)}</span>
             </div>
             <p class="text-sm text-base-content/70 mt-1">
               @{@user.username}

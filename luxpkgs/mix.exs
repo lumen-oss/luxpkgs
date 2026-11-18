@@ -5,7 +5,7 @@ defmodule Luxpkgs.MixProject do
     [
       app: :luxpkgs,
       version: "0.5.1",
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -50,6 +50,7 @@ defmodule Luxpkgs.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
       {:gettext, "~> 0.26"},
       {:jason, "~> 1.2"},
+      {:latch, "~> 0.9.1"},
       {:mdex, "~> 0.13"},
       {:phoenix_html_sanitizer, "~> 1.2"},
       {:phoenix, "~> 1.8"},

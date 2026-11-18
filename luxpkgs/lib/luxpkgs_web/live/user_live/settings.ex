@@ -2,12 +2,14 @@ defmodule LuxpkgsWeb.UserLive.Settings do
   use LuxpkgsWeb, :live_view
 
   alias Luxpkgs.Accounts.TOTP
+  alias LuxpkgsWeb.Provider
 
   on_mount({LuxpkgsWeb.UserAuth, :require_sudo_mode})
 
   def mount(_params, _session, socket) do
     user = socket.assigns.current_scope.user
     bio_count = (user.bio || "") |> String.length()
+    identities = Luxpkgs.Accounts.list_identities(user)
 
     {:ok,
      socket
@@ -18,6 +20,8 @@ defmodule LuxpkgsWeb.UserLive.Settings do
      |> assign(:tfa_open, false)
      |> assign(:account_open, true)
      |> assign(:backup_codes_remaining, TOTP.backup_codes_remaining(user))
+     |> assign(:identities, identities)
+     |> assign(:missing_providers, ~w(github atproto) -- Enum.map(identities, & &1.provider))
      |> maybe_reveal_backup_codes(user)}
   end
 
@@ -99,7 +103,9 @@ defmodule LuxpkgsWeb.UserLive.Settings do
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-base-content/70">Auth provider</span>
-                  <span class="text-sm font-medium text-primary">GitHub</span>
+                  <span class="text-sm font-medium text-primary">{Provider.label(
+                    @current_scope.user.provider
+                  )}</span>
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-base-content/70">Account type</span>
@@ -281,7 +287,7 @@ defmodule LuxpkgsWeb.UserLive.Settings do
                 <.icon name={:shield_check} type={:outline} class="w-5 h-5 text-primary" />
                 <div>
                   <h2 class="font-semibold text-base-content">Two-Factor Authentication</h2>
-                  <p class="text-sm text-base-content/60">Authenticator app and backup codes</p>
+                  <p class="text-sm text-base-content/70">Authenticator app and backup codes</p>
                 </div>
               </div>
               <div class="collapse-content px-4 sm:px-6">
@@ -289,7 +295,7 @@ defmodule LuxpkgsWeb.UserLive.Settings do
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <p class="text-sm font-medium text-base-content">Authenticator app</p>
-                      <p class="text-xs text-base-content/60">
+                      <p class="text-xs text-base-content/70">
                         Required for uploads made with a 2FA key
                       </p>
                     </div>
@@ -299,7 +305,7 @@ defmodule LuxpkgsWeb.UserLive.Settings do
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <p class="text-sm font-medium text-base-content">Backup codes</p>
-                      <p class="text-xs text-base-content/60">
+                      <p class="text-xs text-base-content/70">
                         {if @backup_codes_remaining == 0,
                           do: "No backup codes left - generate a new set",
                           else: "#{@backup_codes_remaining} of 10 codes remaining"}
@@ -403,22 +409,176 @@ defmodule LuxpkgsWeb.UserLive.Settings do
               <div class="collapse-content px-4 sm:px-6">
                 <div class="space-y-6 pt-2">
                   <div class="bg-base-100 border border-base-300 rounded-box p-4 sm:p-6 space-y-4">
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <.icon name={:users} type={:outline} class="w-5 h-5 text-primary" />
+                      <div>
+                        <p class="text-sm font-medium text-base-content">Linked accounts</p>
+                        <p class="text-xs text-base-content/70">Sign in with any linked account</p>
+                      </div>
+                    </div>
+
+                    <div
+                      :for={identity <- @identities}
+                      class="flex items-center justify-between gap-3"
+                    >
                       <div class="flex items-center gap-3">
-                        <.icon name={:brand_github} type={:outline} class="w-5 h-5 text-success" />
+                        <.icon
+                          name={Provider.icon(identity.provider)}
+                          type={:outline}
+                          class="w-5 h-5"
+                        />
                         <div>
-                          <p class="text-sm font-medium text-base-content">GitHub Account</p>
-                          <p class="text-xs text-base-content/70">Authentication provider</p>
+                          <p class="text-sm font-medium text-base-content">
+                            {Provider.label(identity.provider)}
+                          </p>
+                          <p class="text-xs text-base-content/70">{identity.username}</p>
                         </div>
                       </div>
-                      <span class="badge badge-success badge-sm">Connected</span>
+                      <div class="flex items-center gap-2">
+                        <span class="badge badge-success badge-sm">Connected</span>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-sm text-error"
+                          disabled={length(@identities) < 2}
+                          onclick={"unlink_#{identity.provider}_modal.showModal()"}
+                        >
+                          Unlink
+                        </button>
+                      </div>
                     </div>
+
+                    <%= if length(@identities) > 1 and Enum.any?(@identities, & &1.avatar_url) do %>
+                      <div class="divider"></div>
+                      <div class="space-y-3">
+                        <p class="text-sm font-medium text-base-content">
+                          Avatar source
+                          <span class="block text-xs text-base-content/70">
+                            {avatar_source_summary(@identities, @current_scope.user)}
+                          </span>
+                        </p>
+
+                        <form
+                          id="avatar-source-form"
+                          phx-change="avatar_source"
+                          class="flex flex-wrap gap-2"
+                        >
+                          <label
+                            :for={identity <- @identities}
+                            class="flex cursor-pointer flex-col items-center rounded-box border border-base-300 px-4 py-4 focus-within:ring-2 focus-within:ring-primary has-checked:border-primary has-checked:bg-primary/10 w-[120px]"
+                          >
+                            <input
+                              type="radio"
+                              name="provider"
+                              id={"avatar-source-#{identity.provider}"}
+                              value={identity.provider}
+                              checked={avatar_source?(@current_scope.user, identity)}
+                              class="sr-only"
+                            />
+                            <div class="indicator mb-2">
+                              <div class={[
+                                "avatar",
+                                is_nil(identity.avatar_url) && "avatar-placeholder"
+                              ]}>
+                                <div class={[
+                                  "size-12 rounded-full",
+                                  is_nil(identity.avatar_url) && "bg-primary/10 text-primary"
+                                ]}>
+                                  <img
+                                    :if={identity.avatar_url}
+                                    src={identity.avatar_url}
+                                    alt={identity.username}
+                                  />
+                                  <span
+                                    :if={is_nil(identity.avatar_url)}
+                                    class="font-bold"
+                                  >
+                                    {String.first(identity.username)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <span class="text-sm font-medium">
+                              {Provider.label(identity.provider)}
+                            </span>
+                            <span class="max-w-24 truncate text-xs text-base-content/70">
+                              {identity.username}
+                            </span>
+                          </label>
+                        </form>
+                      </div>
+                    <% end %>
+
+                    <%= if "github" in @missing_providers do %>
+                      <.form
+                        for={%{}}
+                        action={~p"/settings/identities/github"}
+                        method="post"
+                        class="pt-2"
+                      >
+                        <button type="submit" class="btn btn-neutral btn-sm">
+                          <.icon name={:brand_github} type={:filled} class="w-4 h-4" /> Connect GitHub
+                        </button>
+                      </.form>
+                    <% end %>
+
+                    <%= if "atproto" in @missing_providers do %>
+                      <.form
+                        for={%{}}
+                        id="link-atproto-form"
+                        action={~p"/settings/identities/atproto"}
+                        method="post"
+                        class="pt-2 space-y-2"
+                      >
+                        <label class="label-text" for="link-atproto-handle">
+                          Link an AT Protocol account
+                        </label>
+                        <div class="flex gap-2">
+                          <input
+                            id="link-atproto-handle"
+                            type="text"
+                            name="handle"
+                            class="input input-bordered input-sm flex-1"
+                            placeholder="you.bsky.social"
+                            required
+                          />
+                          <button type="submit" class="btn btn-neutral btn-sm">
+                            <.icon name={:tangled} type={:outline} class="w-4 h-4" /> Connect
+                          </button>
+                        </div>
+                      </.form>
+                    <% end %>
                   </div>
+
+                  <.confirm_modal
+                    :for={identity <- @identities}
+                    id={"unlink_#{identity.provider}_modal"}
+                    title={"Unlink #{Provider.label(identity.provider)}?"}
+                  >
+                    <p class="text-sm text-base-content/80 mb-4">
+                      You will no longer be able to sign in with this account.
+                      <%= if identity.provider == @current_scope.user.provider do %>
+                        Your profile handle and display name will move to your remaining linked account.
+                      <% end %>
+                    </p>
+                    <:confirm>
+                      <.form
+                        for={%{}}
+                        id={"unlink_#{identity.provider}_form"}
+                        action={~p"/settings/identities/#{identity.provider}"}
+                        method="delete"
+                      >
+                        <button type="submit" class="btn btn-error">Unlink</button>
+                      </.form>
+                    </:confirm>
+                  </.confirm_modal>
+
                   <div class="divider"></div>
                   <div class="flex flex-col sm:flex-row justify-end gap-2">
-                    <.link href={~p"/auth/github"} class="btn btn-neutral">
-                      <.icon name={:refresh} type={:outline} class="w-4 h-4" /> Sync Profile
-                    </.link>
+                    <%= if @current_scope.user.provider == "github" do %>
+                      <.link href={~p"/auth/github"} class="btn btn-neutral">
+                        <.icon name={:refresh} type={:outline} class="w-4 h-4" /> Sync Profile
+                      </.link>
+                    <% end %>
                     <button
                       class="btn btn-error"
                       onclick="delete_account_modal.showModal()"
@@ -569,6 +729,21 @@ defmodule LuxpkgsWeb.UserLive.Settings do
     end
   end
 
+  def handle_event("avatar_source", %{"provider" => provider}, socket) do
+    user = socket.assigns.current_scope.user
+
+    case Luxpkgs.Accounts.update_avatar_source(user, provider) do
+      {:ok, user} ->
+        {:noreply,
+         socket
+         |> assign(:current_scope, Luxpkgs.Accounts.Scope.for_user(user))
+         |> put_flash(:info, "Avatar source updated.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not update the avatar source.")}
+    end
+  end
+
   def handle_event("regenerate_backup_codes", %{"code" => code}, socket) do
     user = socket.assigns.current_scope.user
 
@@ -683,6 +858,20 @@ defmodule LuxpkgsWeb.UserLive.Settings do
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp close_modal(socket, id), do: push_event(socket, "close_dialog", %{id: id})
+
+  defp avatar_source?(user, identity) do
+    (user.avatar_source || user.provider) == identity.provider
+  end
+
+  defp avatar_source_summary(identities, user) do
+    source = Enum.find(identities, &(&1.provider == (user.avatar_source || user.provider)))
+
+    if user.avatar_url do
+      "Showing the picture from #{Provider.label(source.provider)}."
+    else
+      "No picture on #{Provider.label(source.provider)}, so your profile shows your initial."
+    end
+  end
 
   defp member_since_date(%DateTime{} = date), do: Calendar.strftime(date, "%B %Y")
   defp member_since_date(%NaiveDateTime{} = date), do: Calendar.strftime(date, "%B %Y")

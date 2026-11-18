@@ -2,10 +2,11 @@ defmodule Luxpkgs.AccountsTest do
   use Luxpkgs.DataCase
 
   alias Luxpkgs.Accounts
+  alias Luxpkgs.Repo
 
   import Luxpkgs.AccountsFixtures
   import Luxpkgs.AdminFixtures
-  alias Luxpkgs.Accounts.{User, UserToken}
+  alias Luxpkgs.Accounts.{User, UserIdentity, UserToken}
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRow
   alias Luxpkgs.Audit
@@ -117,6 +118,95 @@ defmodule Luxpkgs.AccountsTest do
     end
   end
 
+  describe "get_user_by_auth/1" do
+    test "matches a user from the same provider by email" do
+      user = user_fixture(%{email: "same-provider@example.com"})
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        info: %Ueberauth.Auth.Info{nickname: "renamed_on_github", email: user.email}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+    end
+
+    test "does not match a user from another provider by email" do
+      user = user_fixture(%{email: "shared@example.com"})
+
+      user =
+        user
+        |> Ecto.Changeset.change(provider: "gitlab")
+        |> Luxpkgs.Repo.update!()
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        info: %Ueberauth.Auth.Info{nickname: "someone_else", email: user.email}
+      }
+
+      refute Accounts.get_user_by_auth(auth)
+    end
+
+    test "matches the identity by uid when the handle changed" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "42"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "42",
+        info: %Ueberauth.Auth.Info{nickname: "renamed_on_github", email: user.email}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+    end
+
+    test "matches the identity when GitHub sends an integer uid" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "42"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: 42,
+        info: %Ueberauth.Auth.Info{nickname: "renamed_on_github"}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+    end
+
+    test "does not match a claimed handle with a different uid" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "original"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "reclaimed",
+        info: %Ueberauth.Auth.Info{nickname: identity.username}
+      }
+
+      refute Accounts.get_user_by_auth(auth)
+    end
+
+    test "stores the uid on a backfilled identity matched by username" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: 67_890,
+        info: %Ueberauth.Auth.Info{nickname: identity.username}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+      assert Repo.get!(UserIdentity, identity.id).uid == "67890"
+    end
+  end
+
   describe "register_user/1" do
     test "stores the oauth avatar URL" do
       auth = %Ueberauth.Auth{
@@ -133,6 +223,42 @@ defmodule Luxpkgs.AccountsTest do
       assert url == "https://avatars.githubusercontent.com/u/36456999"
     end
 
+    test "stores the DID and handle of an atproto account" do
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "someone.bsky.social",
+          email: unique_user_email()
+        }
+      }
+
+      assert {:ok, %User{provider: "atproto", username: "someone.bsky.social"} = user} =
+               Accounts.register_user(auth)
+
+      identity = Repo.get_by(UserIdentity, user_id: user.id, provider: "atproto")
+      assert identity.uid == "did:plc:atproto123"
+      assert identity.username == "someone.bsky.social"
+    end
+
+    test "stores an atproto avatar from the user's PDS" do
+      avatar =
+        "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aatproto123&cid=bafkrei"
+
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "someone.bsky.social",
+          email: unique_user_email(),
+          image: avatar
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+
+      assert {:ok, %User{avatar_url: ^avatar}} = Accounts.register_user(auth)
+    end
+
     test "rejects avatar URLs from untrusted hosts" do
       auth = %Ueberauth.Auth{
         provider: "github",
@@ -146,6 +272,341 @@ defmodule Luxpkgs.AccountsTest do
 
       assert {:error, %Ecto.Changeset{errors: errors}} = Accounts.register_user(auth)
       assert {"must come from a trusted provider", _opts} = errors[:avatar_url]
+    end
+
+    test "returns an error when the email belongs to another account" do
+      existing = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        info: %Ueberauth.Auth.Info{
+          nickname: "email_taken",
+          name: "Email Taken",
+          email: existing.email,
+          image: nil
+        }
+      }
+
+      assert {:error, %Ecto.Changeset{errors: errors}} = Accounts.register_user(auth)
+      assert {"has already been taken", _opts} = errors[:email]
+    end
+
+    test "creates the first identity next to the user" do
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "424242",
+        info: %Ueberauth.Auth.Info{
+          nickname: "new_identity",
+          name: "New Identity",
+          email: unique_user_email(),
+          image: "https://avatars.githubusercontent.com/u/424242"
+        }
+      }
+
+      assert {:ok, %User{id: user_id}} = Accounts.register_user(auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user_id)
+      assert identity.provider == "github"
+      assert identity.uid == "424242"
+      assert identity.username == "new_identity"
+      assert identity.aka == "New Identity"
+      assert identity.avatar_url == "https://avatars.githubusercontent.com/u/424242"
+    end
+  end
+
+  describe "sync_profile/2" do
+    test "updates the identity and the primary display copy" do
+      user = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "777",
+        info: %Ueberauth.Auth.Info{
+          nickname: "fresh_handle",
+          name: "Fresh Name",
+          email: user.email,
+          image: "https://avatars.githubusercontent.com/u/777"
+        }
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      assert identity.uid == "777"
+      assert identity.username == "fresh_handle"
+
+      user = Repo.get!(User, user.id)
+      assert user.username == "fresh_handle"
+      assert user.aka == "Fresh Name"
+      assert user.avatar_url == "https://avatars.githubusercontent.com/u/777"
+    end
+
+    test "never replaces a stored uid" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "original"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "different",
+        info: %Ueberauth.Auth.Info{nickname: identity.username, email: user.email}
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+      assert Repo.get!(UserIdentity, identity.id).uid == "original"
+    end
+
+    test "stores the PDS avatar of an atproto identity" do
+      avatar =
+        "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aatproto123&cid=bafkrei"
+
+      signup = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{nickname: "amartin.beer", email: unique_user_email()}
+      }
+
+      assert {:ok, user} = Accounts.register_user(signup)
+
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "amartin.beer",
+          name: "Amartin",
+          image: avatar
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
+      assert identity.aka == "Amartin"
+      assert identity.avatar_url == avatar
+      assert Repo.get!(User, user.id).avatar_url == avatar
+    end
+
+    test "does not trust an avatar outside the user's PDS" do
+      signup = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{nickname: "amartin.beer", email: unique_user_email()}
+      }
+
+      assert {:ok, user} = Accounts.register_user(signup)
+
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "amartin.beer",
+          image: "https://evil.example/avatar.png"
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
+      assert is_nil(identity.avatar_url)
+    end
+
+    test "keeps the selected avatar when the other identity logs in" do
+      user = user_fixture()
+
+      link =
+        atproto_auth("did:plc:selected1", "selected.bsky.social",
+          image: "https://pds.example/selected.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, link)
+      assert {:ok, _user} = Accounts.update_avatar_source(user, "atproto")
+      user = Accounts.get_user!(user.id)
+
+      github = %Ueberauth.Auth{
+        provider: :github,
+        uid: "36456999",
+        info: %Ueberauth.Auth.Info{
+          nickname: "fresh_user",
+          name: "Fresh",
+          email: user.email,
+          image: "https://avatars.githubusercontent.com/u/36456999"
+        }
+      }
+
+      assert :ok = Accounts.sync_profile(user, github)
+
+      user = Accounts.get_user!(user.id)
+      assert user.username == "fresh_user"
+      assert user.avatar_url == "https://pds.example/selected.png"
+    end
+  end
+
+  describe "link_identity/2" do
+    test "links an identity from another provider" do
+      user = user_fixture()
+
+      assert {:ok, :linked} =
+               Accounts.link_identity(user, atproto_auth("did:plc:linked1", "linked.bsky.social"))
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
+      assert identity.uid == "did:plc:linked1"
+      assert identity.username == "linked.bsky.social"
+    end
+
+    test "refuses an identity that belongs to another user" do
+      owner = user_fixture()
+      user = user_fixture()
+      auth = atproto_auth("did:plc:owned1", "owned.bsky.social")
+
+      assert {:ok, :linked} = Accounts.link_identity(owner, auth)
+      assert {:error, :taken} = Accounts.link_identity(user, auth)
+      refute Repo.get_by(UserIdentity, user_id: user.id, provider: "atproto")
+    end
+
+    test "reports an identity already linked to the same user" do
+      user = user_fixture()
+      auth = atproto_auth("did:plc:again1", "again.bsky.social")
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+      assert {:ok, :already_linked} = Accounts.link_identity(user, auth)
+
+      identities =
+        Repo.all(
+          from i in UserIdentity,
+            where: i.user_id == ^user.id and i.provider == "atproto"
+        )
+
+      assert length(identities) == 1
+    end
+
+    test "refuses a second account of an already linked provider" do
+      user = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: :github,
+        uid: "9999",
+        info: %Ueberauth.Auth.Info{nickname: "other_handle", email: nil}
+      }
+
+      assert {:error, :different_identity} = Accounts.link_identity(user, auth)
+    end
+
+    defp atproto_auth(uid, handle, opts \\ []) do
+      %Ueberauth.Auth{
+        provider: :atproto,
+        uid: uid,
+        info: %Ueberauth.Auth.Info{
+          nickname: handle,
+          name: opts[:name],
+          email: nil,
+          image: opts[:image]
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+    end
+  end
+
+  describe "unlink_identity/2" do
+    test "refuses to remove the last identity" do
+      user = user_fixture()
+
+      assert {:error, :last_identity} = Accounts.unlink_identity(user, "github")
+      assert Repo.get_by(UserIdentity, user_id: user.id, provider: "github")
+    end
+
+    test "removes an identity that is not the primary" do
+      user = user_fixture()
+      username = user.username
+
+      assert {:ok, :linked} =
+               Accounts.link_identity(user, atproto_auth("did:plc:unlink1", "unlink.bsky.social"))
+
+      assert {:ok, %User{} = user} = Accounts.unlink_identity(user, "atproto")
+
+      assert user.provider == "github"
+      assert user.username == username
+      refute Repo.get_by(UserIdentity, user_id: user.id, provider: "atproto")
+    end
+
+    test "repoints the display copy when the primary is unlinked" do
+      user = user_fixture()
+
+      auth =
+        atproto_auth("did:plc:unlink2", "primary.bsky.social",
+          name: "Primary Name",
+          image: "https://pds.example/primary.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+      assert {:ok, _user} = Accounts.update_avatar_source(user, "atproto")
+      user = Accounts.get_user!(user.id)
+
+      assert {:ok,
+              %User{
+                provider: "atproto",
+                username: "primary.bsky.social",
+                aka: "Primary Name",
+                avatar_source: "atproto",
+                avatar_url: "https://pds.example/primary.png"
+              }} = Accounts.unlink_identity(user, "github")
+    end
+
+    test "resets the avatar source when its identity is unlinked" do
+      user = user_fixture()
+
+      auth =
+        atproto_auth("did:plc:unlink3", "avatar.bsky.social",
+          image: "https://pds.example/avatar.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+      assert {:ok, _user} = Accounts.update_avatar_source(user, "atproto")
+      user = Accounts.get_user!(user.id)
+
+      assert {:ok, %User{avatar_source: nil, avatar_url: nil, provider: "github"}} =
+               Accounts.unlink_identity(user, "atproto")
+    end
+
+    test "returns an error when the provider is not linked" do
+      user = user_fixture()
+
+      assert {:error, :not_linked} = Accounts.unlink_identity(user, "atproto")
+    end
+  end
+
+  describe "update_avatar_source/2" do
+    test "copies the stored avatar of the chosen identity" do
+      user = user_fixture()
+
+      auth =
+        atproto_auth("did:plc:source1", "source.bsky.social",
+          image: "https://pds.example/source.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+
+      assert {:ok,
+              %User{
+                avatar_source: "atproto",
+                avatar_url: "https://pds.example/source.png"
+              }} = Accounts.update_avatar_source(user, "atproto")
+    end
+
+    test "falls back to the placeholder when the source has no avatar" do
+      user = user_fixture()
+
+      assert {:ok, :linked} =
+               Accounts.link_identity(user, atproto_auth("did:plc:source2", "plain.bsky.social"))
+
+      assert {:ok, %User{avatar_url: nil}} = Accounts.update_avatar_source(user, "atproto")
+    end
+
+    test "refuses a provider that is not linked" do
+      user = user_fixture()
+
+      assert {:error, :not_linked} = Accounts.update_avatar_source(user, "atproto")
     end
   end
 

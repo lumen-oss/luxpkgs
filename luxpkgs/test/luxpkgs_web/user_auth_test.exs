@@ -480,4 +480,146 @@ defmodule LuxpkgsWeb.UserAuthTest do
       refute get_session(conn, :pending_totp_user_id)
     end
   end
+
+  describe "callback/2 with a link intent" do
+    test "links the identity to the user in the session", %{conn: conn} do
+      user = user_fixture()
+      auth = Luxpkgs.AtpOauth.auth("did:plc:intent1", "intent.bsky.social")
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user.id)
+        |> put_session(:oauth_link_at, System.os_time(:second))
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/settings"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Account linked."
+      refute get_session(conn, :oauth_link_user_id)
+      refute get_session(conn, :oauth_link_at)
+
+      assert Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity,
+               user_id: user.id,
+               provider: "atproto"
+             )
+    end
+
+    test "ignores an intent older than ten minutes", %{conn: conn} do
+      user = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: :github,
+        uid: "4242",
+        info: %Ueberauth.Auth.Info{nickname: user.username, email: user.email}
+      }
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user.id)
+        |> put_session(:oauth_link_at, System.os_time(:second) - 601)
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/setup-totp"
+      assert get_session(conn, :pending_totp_user_id) == user.id
+      refute get_session(conn, :oauth_link_user_id)
+    end
+
+    test "clears the intent when the oauth callback fails", %{conn: conn} do
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user_fixture().id)
+        |> put_session(:oauth_link_at, System.os_time(:second))
+        |> LuxpkgsWeb.UserOauth.handle_failure()
+
+      assert redirected_to(conn) == ~p"/"
+      refute get_session(conn, :oauth_link_user_id)
+    end
+
+    test "refuses an identity owned by another user", %{conn: conn} do
+      owner = user_fixture()
+      user = user_fixture()
+      auth = Luxpkgs.AtpOauth.auth("did:plc:taken1", "taken.bsky.social")
+      {:ok, :linked} = Accounts.link_identity(owner, auth)
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_link_user_id, user.id)
+        |> put_session(:oauth_link_at, System.os_time(:second))
+        |> assign(:ueberauth_auth, auth)
+        |> LuxpkgsWeb.UserOauth.callback(%{})
+
+      assert redirected_to(conn) == ~p"/settings"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "That account is already linked to another user."
+
+      refute Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity,
+               user_id: user.id,
+               provider: "atproto"
+             )
+    end
+  end
+
+  describe "complete_signup/2" do
+    test "redirects to the login page when the signup session is gone", %{conn: conn} do
+      conn =
+        conn
+        |> fetch_flash()
+        |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => "new@example.com"}})
+
+      assert redirected_to(conn) == ~p"/login"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Your signup session expired. Please try authenticating again."
+    end
+
+    test "returns to the email form when the email is already taken", %{conn: conn} do
+      existing = user_fixture()
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_signup_token, %{
+          provider: :github,
+          info: %{nickname: "newcomer", name: "Newcomer", email: nil, image: nil}
+        })
+        |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => existing.email}})
+
+      assert redirected_to(conn) == ~p"/provide-email"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Failed to create account. Please check your email."
+    end
+
+    test "keeps the DID and avatar of an atproto signup", %{conn: conn} do
+      avatar =
+        "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Asignup123&cid=bafkrei"
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_signup_token, %{
+          provider: :atproto,
+          uid: "did:plc:signup123",
+          pds_endpoint: "https://pds.example",
+          info: %{nickname: "newcomer.test", name: "Newcomer", email: nil, image: avatar}
+        })
+        |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => unique_user_email()}})
+
+      assert redirected_to(conn) == ~p"/setup-totp"
+
+      user = Accounts.get_user_by_username("newcomer.test")
+      assert user.provider == "atproto"
+      assert user.avatar_url == avatar
+
+      identity = Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity, user_id: user.id)
+      assert identity.uid == "did:plc:signup123"
+      assert identity.avatar_url == avatar
+    end
+  end
 end

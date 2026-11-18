@@ -1,6 +1,7 @@
 defmodule LuxpkgsWeb.UserLive.Profile do
   alias Luxpkgs.Accounts
   alias Luxpkgs.Packages
+  alias LuxpkgsWeb.Provider
   use LuxpkgsWeb, :live_view
 
   import LuxpkgsWeb.Components.NotFound

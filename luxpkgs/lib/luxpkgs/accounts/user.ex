@@ -16,6 +16,7 @@ defmodule Luxpkgs.Accounts.User do
     field :username, :string
     field :aka, :string
     field :avatar_url, :string
+    field :avatar_source, :string
     field :bio, :string
     field :suspended_at, :utc_datetime
     field :suspension_reason, :string
@@ -62,7 +63,7 @@ defmodule Luxpkgs.Accounts.User do
 
   def strip_urls(bio) when is_nil(bio), do: bio
 
-  def oauth_changeset(user, %Auth{} = auth) do
+  def oauth_changeset(user, %Auth{} = auth, opts \\ []) do
     attrs = %{
       provider: to_string(auth.provider),
       # TODO: Github does this for some reason. We must test if gitlab does this too
@@ -77,15 +78,15 @@ defmodule Luxpkgs.Accounts.User do
     |> validate_required([:username])
     |> unique_constraint([:provider, :username])
     |> validate_provider()
-    |> validate_avatar_url()
+    |> validate_avatar_url(opts)
 
     # |> validate_aka()
   end
 
-  defp validate_provider(changeset) do
+  def validate_provider(changeset) do
     changeset
     |> validate_required(:provider)
-    |> validate_inclusion(:provider, ["github", "gitlab"])
+    |> validate_inclusion(:provider, ["github", "gitlab", "atproto"])
   end
 
   defp validate_aka(changeset) do
@@ -107,7 +108,9 @@ defmodule Luxpkgs.Accounts.User do
     end
   end
 
-  def validate_avatar_url(changeset) do
+  def validate_avatar_url(changeset, opts \\ []) do
+    trusted_hosts = @trusted_avatar_hosts ++ Keyword.get(opts, :extra_hosts, [])
+
     case get_field(changeset, :avatar_url) do
       nil ->
         changeset
@@ -115,7 +118,7 @@ defmodule Luxpkgs.Accounts.User do
       url when is_binary(url) ->
         uri = URI.parse(url)
 
-        if uri.scheme == "https" and uri.host in @trusted_avatar_hosts do
+        if uri.scheme == "https" and uri.host in trusted_hosts do
           changeset
         else
           add_error(changeset, :avatar_url, "must come from a trusted provider")
@@ -131,6 +134,7 @@ defmodule Luxpkgs.Accounts.User do
     user
     |> cast(attrs, [:email])
     |> validate_email()
+    |> unique_constraint(:email)
   end
 
   defp validate_email(changeset) do

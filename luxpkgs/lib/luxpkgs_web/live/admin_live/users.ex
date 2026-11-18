@@ -5,6 +5,7 @@ defmodule LuxpkgsWeb.AdminLive.Users do
   alias Luxpkgs.Accounts.User
   alias Luxpkgs.Admin.Permissions
   alias Luxpkgs.Packages
+  alias LuxpkgsWeb.Provider
 
   @impl true
   def mount(_params, _session, socket) do
@@ -213,7 +214,7 @@ defmodule LuxpkgsWeb.AdminLive.Users do
               </div>
               <div>
                 <dt class="font-semibold text-sm">Provider</dt>
-                <dd>{user.provider}</dd>
+                <dd>{Provider.label(user.provider)}</dd>
               </div>
               <div>
                 <dt class="font-semibold text-sm">Joined</dt>
@@ -265,7 +266,7 @@ defmodule LuxpkgsWeb.AdminLive.Users do
                   </.link>
                 </td>
                 <td>{user.email}</td>
-                <td>{user.provider}</td>
+                <td>{Provider.label(user.provider)}</td>
                 <td>{format_date(user.inserted_at)}</td>
                 <td>{format_count(user.stats.package_count)}</td>
                 <td>{format_count(user.stats.download_count)}</td>

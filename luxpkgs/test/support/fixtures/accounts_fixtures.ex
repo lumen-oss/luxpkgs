@@ -2,6 +2,7 @@ defmodule Luxpkgs.AccountsFixtures do
   import Ecto.Query
   alias Luxpkgs.Accounts
   alias Luxpkgs.Accounts.Scope
+  alias Luxpkgs.Accounts.UserIdentity
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"
@@ -24,6 +25,13 @@ defmodule Luxpkgs.AccountsFixtures do
       })
       |> Luxpkgs.Repo.insert!()
 
+    Luxpkgs.Repo.insert!(%UserIdentity{
+      user_id: user.id,
+      provider: user.provider,
+      username: user.username,
+      aka: user.aka
+    })
+
     Map.merge(user, Map.drop(attrs, [:email]))
   end
 
@@ -41,6 +49,13 @@ defmodule Luxpkgs.AccountsFixtures do
         aka: "User #{unique}"
       })
       |> Luxpkgs.Repo.insert!()
+
+    Luxpkgs.Repo.insert!(%UserIdentity{
+      user_id: user.id,
+      provider: user.provider,
+      username: user.username,
+      aka: user.aka
+    })
 
     Map.merge(user, Map.drop(attrs, [:email]))
   end

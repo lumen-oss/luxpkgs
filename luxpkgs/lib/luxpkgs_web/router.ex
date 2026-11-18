@@ -63,6 +63,8 @@ defmodule LuxpkgsWeb.Router do
     end
 
     delete "/logout", UserAuthController, :log_out_user
+    post "/settings/identities/:provider", LinkedAccountsController, :create
+    delete "/settings/identities/:provider", LinkedAccountsController, :delete
   end
 
   scope "/admin", LuxpkgsWeb do
@@ -90,8 +92,16 @@ defmodule LuxpkgsWeb.Router do
     post "/verify", AdminTotpController, :create
   end
 
+  # Unauthenticated so a PDS can fetch the client metadata.
+  scope "/", LuxpkgsWeb do
+    get "/oauth-client-metadata.json", AtpOauthController, :client_metadata
+  end
+
   scope "/auth", LuxpkgsWeb do
     pipe_through :browser
+
+    post "/atproto", AtpOauthController, :request
+    get "/atproto/callback", AtpOauthController, :callback
 
     get "/:provider", UserOauth, :request
     get "/:provider/callback", UserOauth, :callback
