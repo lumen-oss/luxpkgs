@@ -44,6 +44,7 @@ defmodule LuxpkgsWeb.UserOauth do
         auth_stripped = %{
           provider: auth.provider,
           uid: auth.uid,
+          pds_endpoint: pds_endpoint(auth),
           info: %{
             nickname: auth.info.nickname,
             name: auth.info.name,
@@ -81,6 +82,13 @@ defmodule LuxpkgsWeb.UserOauth do
     end
   end
 
+  defp pds_endpoint(%Ueberauth.Auth{extra: %Ueberauth.Auth.Extra{raw_info: raw_info}})
+       when is_map(raw_info) do
+    raw_info[:pds_endpoint]
+  end
+
+  defp pds_endpoint(_auth), do: nil
+
   def complete_signup(conn, %{"user" => %{"email" => email}}) do
     auth = get_session(conn, :oauth_signup_token)
 
@@ -103,6 +111,7 @@ defmodule LuxpkgsWeb.UserOauth do
         ueberauth = %Ueberauth.Auth{
           provider: auth.provider,
           uid: auth[:uid],
+          extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: auth[:pds_endpoint]}},
           info: %Ueberauth.Auth.Info{
             nickname: auth.info.nickname,
             name: auth.info.name,

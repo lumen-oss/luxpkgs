@@ -212,10 +212,12 @@ defmodule Luxpkgs.Accounts do
       {:ok, %User{}}
   """
   def register_user(%Ueberauth.Auth{} = auth) do
+    avatar_opts = avatar_hosts(auth)
+
     Multi.new()
-    |> Multi.insert(:user, User.oauth_changeset(%User{}, auth))
+    |> Multi.insert(:user, User.oauth_changeset(%User{}, auth, avatar_opts))
     |> Multi.insert(:identity, fn %{user: user} ->
-      UserIdentity.changeset(%UserIdentity{user_id: user.id}, identity_attrs(auth))
+      UserIdentity.changeset(%UserIdentity{user_id: user.id}, identity_attrs(auth), avatar_opts)
     end)
     |> Repo.transaction()
     |> case do
@@ -228,14 +230,16 @@ defmodule Luxpkgs.Accounts do
   Refreshes the identity and the display copy on the user after a login.
   """
   def sync_profile(%User{} = user, %Ueberauth.Auth{} = auth) do
-    with %UserIdentity{} = identity <- upsert_identity(user, auth) do
-      sync_display_copy(user, identity)
+    avatar_opts = avatar_hosts(auth)
+
+    with %UserIdentity{} = identity <- upsert_identity(user, auth, avatar_opts) do
+      sync_display_copy(user, identity, avatar_opts)
     end
 
     :ok
   end
 
-  defp upsert_identity(%User{} = user, %Ueberauth.Auth{} = auth) do
+  defp upsert_identity(%User{} = user, %Ueberauth.Auth{} = auth, avatar_opts) do
     identity =
       Repo.get_by(UserIdentity, user_id: user.id, provider: to_string(auth.provider)) ||
         %UserIdentity{user_id: user.id}
@@ -245,7 +249,7 @@ defmodule Luxpkgs.Accounts do
     attrs = if identity.uid, do: Map.delete(attrs, :uid), else: attrs
 
     identity
-    |> UserIdentity.changeset(attrs)
+    |> UserIdentity.changeset(attrs, avatar_opts)
     |> Repo.insert_or_update()
     |> case do
       {:ok, identity} ->
@@ -261,7 +265,7 @@ defmodule Luxpkgs.Accounts do
   end
 
   # The users columns are the display copy of the primary identity.
-  defp sync_display_copy(%User{} = user, %UserIdentity{} = identity) do
+  defp sync_display_copy(%User{} = user, %UserIdentity{} = identity, avatar_opts) do
     if user.provider == identity.provider do
       user
       |> Ecto.Changeset.change(%{
@@ -269,7 +273,7 @@ defmodule Luxpkgs.Accounts do
         aka: identity.aka,
         avatar_url: identity.avatar_url
       })
-      |> User.validate_avatar_url()
+      |> User.validate_avatar_url(avatar_opts)
       |> Repo.update()
       |> case do
         {:ok, user} ->
@@ -284,6 +288,20 @@ defmodule Luxpkgs.Accounts do
       end
     end
   end
+
+  # atproto avatars are served by the PDS discovered from the authenticated DID,
+  # so only that host becomes trusted, and only for atproto logins.
+  defp avatar_hosts(%Ueberauth.Auth{provider: :atproto, extra: extra}) do
+    with %Ueberauth.Auth.Extra{raw_info: raw_info} when is_map(raw_info) <- extra,
+         pds_endpoint when is_binary(pds_endpoint) <- raw_info[:pds_endpoint],
+         %URI{host: host} when is_binary(host) <- URI.parse(pds_endpoint) do
+      [extra_hosts: [host]]
+    else
+      _ -> []
+    end
+  end
+
+  defp avatar_hosts(_auth), do: []
 
   defp identity_attrs(%Ueberauth.Auth{} = auth) do
     %{

@@ -16,12 +16,12 @@ defmodule Luxpkgs.Accounts.UserIdentity do
     timestamps(type: :utc_datetime)
   end
 
-  def changeset(identity, attrs) do
+  def changeset(identity, attrs, opts \\ []) do
     identity
     |> cast(attrs, [:provider, :uid, :username, :aka, :avatar_url])
     |> User.validate_provider()
     |> validate_required([:username])
-    |> User.validate_avatar_url()
+    |> User.validate_avatar_url(opts)
     |> unique_constraint([:user_id, :provider])
     |> unique_constraint([:provider, :uid])
     |> unique_constraint([:provider, :username])

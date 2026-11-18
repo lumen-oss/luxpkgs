@@ -226,6 +226,24 @@ defmodule Luxpkgs.AccountsTest do
       assert identity.username == "someone.bsky.social"
     end
 
+    test "stores an atproto avatar from the user's PDS" do
+      avatar =
+        "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aatproto123&cid=bafkrei"
+
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "someone.bsky.social",
+          email: unique_user_email(),
+          image: avatar
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+
+      assert {:ok, %User{avatar_url: ^avatar}} = Accounts.register_user(auth)
+    end
+
     test "rejects avatar URLs from untrusted hosts" do
       auth = %Ueberauth.Auth{
         provider: "github",
@@ -321,6 +339,62 @@ defmodule Luxpkgs.AccountsTest do
 
       assert :ok = Accounts.sync_profile(user, auth)
       assert Repo.get!(UserIdentity, identity.id).uid == "original"
+    end
+
+    test "stores the PDS avatar of an atproto identity" do
+      avatar =
+        "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aatproto123&cid=bafkrei"
+
+      signup = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{nickname: "amartin.beer", email: unique_user_email()}
+      }
+
+      assert {:ok, user} = Accounts.register_user(signup)
+
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "amartin.beer",
+          name: "Amartin",
+          image: avatar
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
+      assert identity.aka == "Amartin"
+      assert identity.avatar_url == avatar
+      assert Repo.get!(User, user.id).avatar_url == avatar
+    end
+
+    test "does not trust an avatar outside the user's PDS" do
+      signup = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{nickname: "amartin.beer", email: unique_user_email()}
+      }
+
+      assert {:ok, user} = Accounts.register_user(signup)
+
+      auth = %Ueberauth.Auth{
+        provider: :atproto,
+        uid: "did:plc:atproto123",
+        info: %Ueberauth.Auth.Info{
+          nickname: "amartin.beer",
+          image: "https://evil.example/avatar.png"
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
+      assert is_nil(identity.avatar_url)
     end
   end
 

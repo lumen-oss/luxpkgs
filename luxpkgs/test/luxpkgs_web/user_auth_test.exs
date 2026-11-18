@@ -512,14 +512,18 @@ defmodule LuxpkgsWeb.UserAuthTest do
                "Failed to create account. Please check your email."
     end
 
-    test "keeps the DID of an atproto signup", %{conn: conn} do
+    test "keeps the DID and avatar of an atproto signup", %{conn: conn} do
+      avatar =
+        "https://pds.example/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Asignup123&cid=bafkrei"
+
       conn =
         conn
         |> fetch_flash()
         |> put_session(:oauth_signup_token, %{
           provider: :atproto,
           uid: "did:plc:signup123",
-          info: %{nickname: "newcomer.test", name: nil, email: nil, image: nil}
+          pds_endpoint: "https://pds.example",
+          info: %{nickname: "newcomer.test", name: "Newcomer", email: nil, image: avatar}
         })
         |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => unique_user_email()}})
 
@@ -527,9 +531,11 @@ defmodule LuxpkgsWeb.UserAuthTest do
 
       user = Accounts.get_user_by_username("newcomer.test")
       assert user.provider == "atproto"
+      assert user.avatar_url == avatar
 
       identity = Luxpkgs.Repo.get_by(Luxpkgs.Accounts.UserIdentity, user_id: user.id)
       assert identity.uid == "did:plc:signup123"
+      assert identity.avatar_url == avatar
     end
   end
 end
