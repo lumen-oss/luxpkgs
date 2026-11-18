@@ -2,8 +2,7 @@ defmodule LuxpkgsWeb.UserLive.ProvideEmail do
   use LuxpkgsWeb, :live_view
   alias Luxpkgs.Accounts.User
 
-  def mount(params, session, socket) do
-    token = params["token"]
+  def mount(_params, session, socket) do
     oauth_data = session["oauth_signup_token"]
 
     changeset = User.email_changeset(%User{}, %{})
@@ -12,7 +11,6 @@ defmodule LuxpkgsWeb.UserLive.ProvideEmail do
      socket
      |> assign(:oauth_data, oauth_data)
      |> assign(:provider, oauth_data.provider |> to_string() |> String.capitalize())
-     |> assign(:token, token)
      |> assign(:form, to_form(changeset))
      |> assign(:page_title, "Provide Email")}
   end
@@ -72,7 +70,6 @@ defmodule LuxpkgsWeb.UserLive.ProvideEmail do
               phx-change="validate"
               class="flex flex-col gap-6"
             >
-              <input type="hidden" name="token" value={@token} />
               <.input
                 field={@form[:email]}
                 type="email"

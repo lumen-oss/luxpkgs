@@ -131,6 +131,7 @@ defmodule Luxpkgs.Accounts.User do
     user
     |> cast(attrs, [:email])
     |> validate_email()
+    |> unique_constraint(:email)
   end
 
   defp validate_email(changeset) do

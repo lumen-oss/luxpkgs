@@ -72,45 +72,52 @@ defmodule LuxpkgsWeb.UserOauth do
     end
   end
 
-  def complete_signup(conn, %{"user" => %{"email" => email}, "token" => _token}) do
+  def complete_signup(conn, %{"user" => %{"email" => email}}) do
     auth = get_session(conn, :oauth_signup_token)
 
-    # The email has already been set and the user has navigated to the page in an unnatural way
-    if not is_nil(auth.info.email) do
-      conn
-      |> put_flash(
-        :error,
-        "Unable to modify account with public email. Please try authenticating again."
-      )
-      |> redirect(to: ~p"/login")
-    else
-      ueberauth = %Ueberauth.Auth{
-        provider: auth.provider,
-        info: %Ueberauth.Auth.Info{
-          nickname: auth.info.nickname,
-          name: auth.info.name,
-          email: email,
-          image: auth.info.image
+    cond do
+      is_nil(auth) ->
+        conn
+        |> put_flash(:error, "Your signup session expired. Please try authenticating again.")
+        |> redirect(to: ~p"/login")
+
+      # The email has already been set and the user has navigated to the page in an unnatural way
+      not is_nil(auth.info.email) ->
+        conn
+        |> put_flash(
+          :error,
+          "Unable to modify account with public email. Please try authenticating again."
+        )
+        |> redirect(to: ~p"/login")
+
+      true ->
+        ueberauth = %Ueberauth.Auth{
+          provider: auth.provider,
+          info: %Ueberauth.Auth.Info{
+            nickname: auth.info.nickname,
+            name: auth.info.name,
+            email: email,
+            image: auth.info.image
+          }
         }
-      }
 
-      case Luxpkgs.Accounts.register_user(ueberauth) do
-        {:ok, user} ->
-          if Luxpkgs.Accounts.User.has_totp?(user) do
-            conn
-            |> put_flash(:info, "Account created successfully.")
-            |> LuxpkgsWeb.UserAuth.log_in_user(user)
-          else
-            conn
-            |> put_session(:pending_totp_user_id, user.id)
-            |> redirect(to: ~p"/setup-totp")
-          end
+        case Luxpkgs.Accounts.register_user(ueberauth) do
+          {:ok, user} ->
+            if Luxpkgs.Accounts.User.has_totp?(user) do
+              conn
+              |> put_flash(:info, "Account created successfully.")
+              |> LuxpkgsWeb.UserAuth.log_in_user(user)
+            else
+              conn
+              |> put_session(:pending_totp_user_id, user.id)
+              |> redirect(to: ~p"/setup-totp")
+            end
 
-        {:error, _changeset} ->
-          conn
-          |> put_flash(:error, "Failed to create account. Please check your email.")
-          |> redirect(to: ~p"/provide-email")
-      end
+          {:error, _changeset} ->
+            conn
+            |> put_flash(:error, "Failed to create account. Please check your email.")
+            |> redirect(to: ~p"/provide-email")
+        end
     end
   end
 

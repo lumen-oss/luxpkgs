@@ -177,6 +177,23 @@ defmodule Luxpkgs.AccountsTest do
       assert {:error, %Ecto.Changeset{errors: errors}} = Accounts.register_user(auth)
       assert {"must come from a trusted provider", _opts} = errors[:avatar_url]
     end
+
+    test "returns an error when the email belongs to another account" do
+      existing = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        info: %Ueberauth.Auth.Info{
+          nickname: "email_taken",
+          name: "Email Taken",
+          email: existing.email,
+          image: nil
+        }
+      }
+
+      assert {:error, %Ecto.Changeset{errors: errors}} = Accounts.register_user(auth)
+      assert {"has already been taken", _opts} = errors[:email]
+    end
   end
 
   describe "update_bio/2" do

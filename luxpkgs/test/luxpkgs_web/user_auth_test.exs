@@ -480,4 +480,36 @@ defmodule LuxpkgsWeb.UserAuthTest do
       refute get_session(conn, :pending_totp_user_id)
     end
   end
+
+  describe "complete_signup/2" do
+    test "redirects to the login page when the signup session is gone", %{conn: conn} do
+      conn =
+        conn
+        |> fetch_flash()
+        |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => "new@example.com"}})
+
+      assert redirected_to(conn) == ~p"/login"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Your signup session expired. Please try authenticating again."
+    end
+
+    test "returns to the email form when the email is already taken", %{conn: conn} do
+      existing = user_fixture()
+
+      conn =
+        conn
+        |> fetch_flash()
+        |> put_session(:oauth_signup_token, %{
+          provider: :github,
+          info: %{nickname: "newcomer", name: "Newcomer", email: nil, image: nil}
+        })
+        |> LuxpkgsWeb.UserOauth.complete_signup(%{"user" => %{"email" => existing.email}})
+
+      assert redirected_to(conn) == ~p"/provide-email"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Failed to create account. Please check your email."
+    end
+  end
 end
