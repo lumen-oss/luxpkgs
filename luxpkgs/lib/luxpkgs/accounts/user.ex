@@ -82,7 +82,7 @@ defmodule Luxpkgs.Accounts.User do
     # |> validate_aka()
   end
 
-  defp validate_provider(changeset) do
+  def validate_provider(changeset) do
     changeset
     |> validate_required(:provider)
     |> validate_inclusion(:provider, ["github", "gitlab"])

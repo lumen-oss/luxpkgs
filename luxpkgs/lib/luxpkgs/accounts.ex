@@ -4,10 +4,12 @@ defmodule Luxpkgs.Accounts do
   """
 
   import Ecto.Query, warn: false
+  require Logger
+
   alias Ecto.Multi
   alias Luxpkgs.Repo
 
-  alias Luxpkgs.Accounts.{User, UserToken, TotpSecret, TotpBackupCode}
+  alias Luxpkgs.Accounts.{User, UserIdentity, UserToken, TotpSecret, TotpBackupCode}
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRow
   alias Luxpkgs.Audit
@@ -36,28 +38,71 @@ defmodule Luxpkgs.Accounts do
   end
 
   def get_user_by_auth(%Ueberauth.Auth{} = auth) do
-    # First, try to find user by provider + username
-    # This handles cases where GitHub users don't have public emails
     provider = to_string(auth.provider)
 
-    # Goddamn GitHub naming conventions calling the account name "nickname", and the account nickname "name".
-    # NOTE: this might need refactoring later once we add support for more providers.
-    username = auth.info.nickname
-
-    case Repo.get_by(User, provider: provider, username: username) do
-      %User{} = user ->
-        user
+    case find_identity(provider, auth) do
+      %UserIdentity{} = identity ->
+        remember_uid(identity, auth.uid)
+        Repo.get(User, identity.user_id)
 
       nil ->
-        # The email fallback stays scoped to the provider: a row from another
-        # provider with the same email must never be matched.
-        if auth.info.email do
-          Repo.get_by(User, provider: provider, email: auth.info.email)
-        else
-          nil
-        end
+        nil
     end
   end
+
+  defp find_identity(provider, %Ueberauth.Auth{} = auth) do
+    identity_by_uid(provider, auth.uid) ||
+      identity_by_username(provider, auth.info.nickname) ||
+      identity_by_email(provider, auth.info.email)
+  end
+
+  defp identity_by_uid(_provider, nil), do: nil
+
+  defp identity_by_uid(provider, uid), do: Repo.get_by(UserIdentity, provider: provider, uid: uid)
+
+  # GitHub calls the account name "nickname". A username match may only claim an
+  # identity that has no uid yet, so a reclaimed handle cannot take over an account.
+  defp identity_by_username(_provider, nil), do: nil
+
+  defp identity_by_username(provider, username) do
+    Repo.one(
+      from i in UserIdentity,
+        where: i.provider == ^provider and i.username == ^username and is_nil(i.uid)
+    )
+  end
+
+  # Backfilled identities have no uid. The same-provider email fallback lets its
+  # owner claim one once; a row from another provider must never be matched.
+  defp identity_by_email(_provider, nil), do: nil
+
+  defp identity_by_email(provider, email) do
+    with %User{id: user_id} <- Repo.get_by(User, provider: provider, email: email),
+         %UserIdentity{uid: nil} = identity <-
+           Repo.get_by(UserIdentity, user_id: user_id, provider: provider) do
+      identity
+    else
+      _ -> nil
+    end
+  end
+
+  defp remember_uid(%UserIdentity{uid: nil} = identity, uid) when is_binary(uid) do
+    identity
+    |> Ecto.Changeset.change(uid: uid)
+    |> Repo.update()
+    |> case do
+      {:ok, _identity} ->
+        :ok
+
+      {:error, changeset} ->
+        Logger.error(
+          "Could not store the OAuth uid on identity #{identity.id}: #{inspect(changeset.errors)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp remember_uid(_identity, _uid), do: :ok
 
   def user_count do
     Repo.one(from(u in User, select: count(u.id)))
@@ -167,9 +212,87 @@ defmodule Luxpkgs.Accounts do
       {:ok, %User{}}
   """
   def register_user(%Ueberauth.Auth{} = auth) do
-    %User{}
-    |> User.oauth_changeset(auth)
-    |> Repo.insert()
+    Multi.new()
+    |> Multi.insert(:user, User.oauth_changeset(%User{}, auth))
+    |> Multi.insert(:identity, fn %{user: user} ->
+      UserIdentity.changeset(%UserIdentity{user_id: user.id}, identity_attrs(auth))
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: user}} -> {:ok, user}
+      {:error, _step, changeset, _changes} -> {:error, changeset}
+    end
+  end
+
+  @doc """
+  Refreshes the identity and the display copy on the user after a login.
+  """
+  def sync_profile(%User{} = user, %Ueberauth.Auth{} = auth) do
+    with %UserIdentity{} = identity <- upsert_identity(user, auth) do
+      sync_display_copy(user, identity)
+    end
+
+    :ok
+  end
+
+  defp upsert_identity(%User{} = user, %Ueberauth.Auth{} = auth) do
+    identity =
+      Repo.get_by(UserIdentity, user_id: user.id, provider: to_string(auth.provider)) ||
+        %UserIdentity{user_id: user.id}
+
+    attrs = identity_attrs(auth)
+    # A stored uid is authoritative; a later login must never replace it.
+    attrs = if identity.uid, do: Map.delete(attrs, :uid), else: attrs
+
+    identity
+    |> UserIdentity.changeset(attrs)
+    |> Repo.insert_or_update()
+    |> case do
+      {:ok, identity} ->
+        identity
+
+      {:error, changeset} ->
+        Logger.error(
+          "Could not sync the identity of user #{user.id}: #{inspect(changeset.errors)}"
+        )
+
+        nil
+    end
+  end
+
+  # The users columns are the display copy of the primary identity.
+  defp sync_display_copy(%User{} = user, %UserIdentity{} = identity) do
+    if user.provider == identity.provider do
+      user
+      |> Ecto.Changeset.change(%{
+        username: identity.username,
+        aka: identity.aka,
+        avatar_url: identity.avatar_url
+      })
+      |> User.validate_avatar_url()
+      |> Repo.update()
+      |> case do
+        {:ok, user} ->
+          user
+
+        {:error, changeset} ->
+          Logger.error(
+            "Could not sync the profile of user #{user.id}: #{inspect(changeset.errors)}"
+          )
+
+          user
+      end
+    end
+  end
+
+  defp identity_attrs(%Ueberauth.Auth{} = auth) do
+    %{
+      provider: to_string(auth.provider),
+      uid: auth.uid,
+      username: auth.info.nickname,
+      aka: auth.info.name,
+      avatar_url: auth.info.image
+    }
   end
 
   ## Settings

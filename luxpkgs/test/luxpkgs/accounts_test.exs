@@ -2,10 +2,11 @@ defmodule Luxpkgs.AccountsTest do
   use Luxpkgs.DataCase
 
   alias Luxpkgs.Accounts
+  alias Luxpkgs.Repo
 
   import Luxpkgs.AccountsFixtures
   import Luxpkgs.AdminFixtures
-  alias Luxpkgs.Accounts.{User, UserToken}
+  alias Luxpkgs.Accounts.{User, UserIdentity, UserToken}
   alias Luxpkgs.Admin
   alias Luxpkgs.Admin.Admin, as: AdminRow
   alias Luxpkgs.Audit
@@ -145,6 +146,50 @@ defmodule Luxpkgs.AccountsTest do
 
       refute Accounts.get_user_by_auth(auth)
     end
+
+    test "matches the identity by uid when the handle changed" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "42"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "42",
+        info: %Ueberauth.Auth.Info{nickname: "renamed_on_github", email: user.email}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+    end
+
+    test "does not match a claimed handle with a different uid" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "original"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "reclaimed",
+        info: %Ueberauth.Auth.Info{nickname: identity.username}
+      }
+
+      refute Accounts.get_user_by_auth(auth)
+    end
+
+    test "stores the uid on a backfilled identity matched by username" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "67890",
+        info: %Ueberauth.Auth.Info{nickname: identity.username}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+      assert Repo.get!(UserIdentity, identity.id).uid == "67890"
+    end
   end
 
   describe "register_user/1" do
@@ -193,6 +238,71 @@ defmodule Luxpkgs.AccountsTest do
 
       assert {:error, %Ecto.Changeset{errors: errors}} = Accounts.register_user(auth)
       assert {"has already been taken", _opts} = errors[:email]
+    end
+
+    test "creates the first identity next to the user" do
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "424242",
+        info: %Ueberauth.Auth.Info{
+          nickname: "new_identity",
+          name: "New Identity",
+          email: unique_user_email(),
+          image: "https://avatars.githubusercontent.com/u/424242"
+        }
+      }
+
+      assert {:ok, %User{id: user_id}} = Accounts.register_user(auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user_id)
+      assert identity.provider == "github"
+      assert identity.uid == "424242"
+      assert identity.username == "new_identity"
+      assert identity.aka == "New Identity"
+      assert identity.avatar_url == "https://avatars.githubusercontent.com/u/424242"
+    end
+  end
+
+  describe "sync_profile/2" do
+    test "updates the identity and the primary display copy" do
+      user = user_fixture()
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "777",
+        info: %Ueberauth.Auth.Info{
+          nickname: "fresh_handle",
+          name: "Fresh Name",
+          email: user.email,
+          image: "https://avatars.githubusercontent.com/u/777"
+        }
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      assert identity.uid == "777"
+      assert identity.username == "fresh_handle"
+
+      user = Repo.get!(User, user.id)
+      assert user.username == "fresh_handle"
+      assert user.aka == "Fresh Name"
+      assert user.avatar_url == "https://avatars.githubusercontent.com/u/777"
+    end
+
+    test "never replaces a stored uid" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "original"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: "different",
+        info: %Ueberauth.Auth.Info{nickname: identity.username, email: user.email}
+      }
+
+      assert :ok = Accounts.sync_profile(user, auth)
+      assert Repo.get!(UserIdentity, identity.id).uid == "original"
     end
   end
 

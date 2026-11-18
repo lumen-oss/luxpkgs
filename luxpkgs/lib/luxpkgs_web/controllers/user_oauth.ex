@@ -14,7 +14,7 @@ defmodule LuxpkgsWeb.UserOauth do
   def callback(%{assigns: %{ueberauth_auth: %Ueberauth.Auth{} = auth}} = conn, _params) do
     case Luxpkgs.Accounts.get_user_by_auth(auth) do
       %Luxpkgs.Accounts.User{} = user ->
-        user = refresh_avatar(user, auth.info.image)
+        Luxpkgs.Accounts.sync_profile(user, auth)
 
         cond do
           Luxpkgs.Accounts.User.suspended?(user) ->
@@ -126,15 +126,6 @@ defmodule LuxpkgsWeb.UserOauth do
     |> put_flash(:error, "Missing required parameters. Please try authenticating again.")
     |> redirect(to: ~p"/login")
   end
-
-  defp refresh_avatar(user, image) when is_binary(image) do
-    case Luxpkgs.Accounts.update_user_avatar(user, image) do
-      {:ok, user} -> user
-      {:error, _changeset} -> user
-    end
-  end
-
-  defp refresh_avatar(user, _image), do: user
 
   def complete_totp_setup(conn, %{"code" => code}) do
     user = totp_setup_user(conn)
