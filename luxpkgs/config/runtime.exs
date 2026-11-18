@@ -27,6 +27,19 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
 config :luxpkgs,
   rockspec_storage: Application.app_dir(:luxpkgs, "priv/static/releases") |> Path.expand()
 
+# Dev and test use the loopback client, so no signing key is needed. The
+# redirect must stay on 127.0.0.1 (RFC 8252), not localhost.
+if config_env() in [:dev, :test] do
+  atproto_port = if config_env() == :test, do: 4002, else: 4000
+
+  config :luxpkgs, :atproto,
+    mode: :localhost,
+    base_url_fun: fn -> "http://127.0.0.1:#{atproto_port}" end,
+    redirect_uri_path: "/auth/atproto/callback",
+    scope: "atproto",
+    store: Luxpkgs.AtpOauthStore
+end
+
 if config_env() == :prod do
   database_url =
     "ecto://#{System.get_env("POSTGRES_USER")}:#{System.get_env("POSTGRES_PASSWORD")}@" <>
@@ -78,6 +91,20 @@ if config_env() == :prod do
     issuer: "luxpkgs",
     secret_key: System.get_env("GUARDIAN_SECRET_KEY"),
     verify_issuer: true
+
+  # Skip the atproto client when the key is absent so a deploy still boots.
+  if jwk = System.get_env("ATPROTO_CLIENT_PRIVATE_JWK") do
+    config :luxpkgs, :atproto,
+      mode: :confidential,
+      signing_key: jwk,
+      client_id_path: "/oauth-client-metadata.json",
+      client_name: "luxpkgs",
+      client_uri: "https://#{host}",
+      base_url_fun: &LuxpkgsWeb.Endpoint.url/0,
+      redirect_uri_path: "/auth/atproto/callback",
+      scope: "atproto",
+      store: Luxpkgs.AtpOauthStore
+  end
 
   cloak_key =
     case System.get_env("CLOAK_KEY") do
