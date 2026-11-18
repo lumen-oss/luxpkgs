@@ -95,6 +95,69 @@ defmodule LuxpkgsWeb.UserLive.SettingsTest do
       refute has_element?(lv, "#link-atproto-form")
     end
 
+    test "disables unlinking the only identity", %{conn: conn} do
+      {:ok, lv, html} =
+        conn
+        |> log_in_user(user_fixture())
+        |> live(~p"/settings")
+
+      refute html =~ "Avatar source"
+      assert has_element?(lv, "button[disabled]", "Unlink")
+    end
+
+    test "switches the avatar source once two identities are linked", %{conn: conn} do
+      user = user_fixture()
+
+      github = %Ueberauth.Auth{
+        provider: :github,
+        info: %Ueberauth.Auth.Info{
+          nickname: user.username,
+          name: user.aka,
+          email: user.email,
+          image: "https://avatars.githubusercontent.com/u/4242"
+        }
+      }
+
+      assert :ok = Luxpkgs.Accounts.sync_profile(user, github)
+      user = Luxpkgs.Accounts.get_user!(user.id)
+
+      assert {:ok, :linked} =
+               Luxpkgs.Accounts.link_identity(
+                 user,
+                 Luxpkgs.AtpOauth.auth("did:plc:settings2", "avatar.bsky.social")
+               )
+
+      {:ok, lv, html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/settings")
+
+      assert html =~ "Avatar source"
+      assert has_element?(lv, "#unlink_atproto_form")
+      refute has_element?(lv, "button[disabled]", "Unlink")
+
+      html =
+        lv
+        |> element("#avatar-source-form")
+        |> render_change(%{"provider" => "atproto"})
+
+      assert html =~ "Avatar source updated."
+      assert html =~ "No picture on AT Protocol, so your profile shows your initial."
+
+      user = Luxpkgs.Accounts.get_user!(user.id)
+      assert user.avatar_source == "atproto"
+      assert user.avatar_url == nil
+
+      html =
+        lv
+        |> element("#avatar-source-form")
+        |> render_change(%{"provider" => "github"})
+
+      assert html =~ "Showing the picture from GitHub."
+
+      assert Luxpkgs.Accounts.get_user!(user.id).avatar_source == "github"
+    end
+
     test "redirects if user is not logged in", %{conn: conn} do
       assert {:error, redirect} = live(conn, ~p"/settings")
 

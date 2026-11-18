@@ -39,6 +39,30 @@ defmodule LuxpkgsWeb.LinkedAccountsController do
     |> redirect(to: ~p"/settings")
   end
 
+  def delete(conn, %{"provider" => provider}) do
+    case Luxpkgs.Accounts.unlink_identity(conn.assigns.current_scope.user, provider) do
+      {:ok, _user} ->
+        conn
+        |> put_flash(:info, "Account unlinked.")
+        |> redirect(to: ~p"/settings")
+
+      {:error, :last_identity} ->
+        conn
+        |> put_flash(:error, "You must keep at least one linked account.")
+        |> redirect(to: ~p"/settings")
+
+      {:error, :not_linked} ->
+        conn
+        |> put_flash(:error, "That account is no longer linked.")
+        |> redirect(to: ~p"/settings")
+
+      {:error, :unlink_failed} ->
+        conn
+        |> put_flash(:error, "Could not unlink that account. Please try again.")
+        |> redirect(to: ~p"/settings")
+    end
+  end
+
   defp put_link_intent(conn) do
     conn
     |> put_session(:oauth_link_user_id, conn.assigns.current_scope.user.id)

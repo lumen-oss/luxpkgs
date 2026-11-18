@@ -411,6 +411,36 @@ defmodule Luxpkgs.AccountsTest do
       identity = Repo.get_by!(UserIdentity, user_id: user.id, provider: "atproto")
       assert is_nil(identity.avatar_url)
     end
+
+    test "keeps the selected avatar when the other identity logs in" do
+      user = user_fixture()
+
+      link =
+        atproto_auth("did:plc:selected1", "selected.bsky.social",
+          image: "https://pds.example/selected.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, link)
+      assert {:ok, _user} = Accounts.update_avatar_source(user, "atproto")
+      user = Accounts.get_user!(user.id)
+
+      github = %Ueberauth.Auth{
+        provider: :github,
+        uid: "36456999",
+        info: %Ueberauth.Auth.Info{
+          nickname: "fresh_user",
+          name: "Fresh",
+          email: user.email,
+          image: "https://avatars.githubusercontent.com/u/36456999"
+        }
+      }
+
+      assert :ok = Accounts.sync_profile(user, github)
+
+      user = Accounts.get_user!(user.id)
+      assert user.username == "fresh_user"
+      assert user.avatar_url == "https://pds.example/selected.png"
+    end
   end
 
   describe "link_identity/2" do
@@ -463,12 +493,120 @@ defmodule Luxpkgs.AccountsTest do
       assert {:error, :different_identity} = Accounts.link_identity(user, auth)
     end
 
-    defp atproto_auth(uid, handle) do
+    defp atproto_auth(uid, handle, opts \\ []) do
       %Ueberauth.Auth{
         provider: :atproto,
         uid: uid,
-        info: %Ueberauth.Auth.Info{nickname: handle, email: nil}
+        info: %Ueberauth.Auth.Info{
+          nickname: handle,
+          name: opts[:name],
+          email: nil,
+          image: opts[:image]
+        },
+        extra: %Ueberauth.Auth.Extra{raw_info: %{pds_endpoint: "https://pds.example"}}
       }
+    end
+  end
+
+  describe "unlink_identity/2" do
+    test "refuses to remove the last identity" do
+      user = user_fixture()
+
+      assert {:error, :last_identity} = Accounts.unlink_identity(user, "github")
+      assert Repo.get_by(UserIdentity, user_id: user.id, provider: "github")
+    end
+
+    test "removes an identity that is not the primary" do
+      user = user_fixture()
+      username = user.username
+
+      assert {:ok, :linked} =
+               Accounts.link_identity(user, atproto_auth("did:plc:unlink1", "unlink.bsky.social"))
+
+      assert {:ok, %User{} = user} = Accounts.unlink_identity(user, "atproto")
+
+      assert user.provider == "github"
+      assert user.username == username
+      refute Repo.get_by(UserIdentity, user_id: user.id, provider: "atproto")
+    end
+
+    test "repoints the display copy when the primary is unlinked" do
+      user = user_fixture()
+
+      auth =
+        atproto_auth("did:plc:unlink2", "primary.bsky.social",
+          name: "Primary Name",
+          image: "https://pds.example/primary.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+      assert {:ok, _user} = Accounts.update_avatar_source(user, "atproto")
+      user = Accounts.get_user!(user.id)
+
+      assert {:ok,
+              %User{
+                provider: "atproto",
+                username: "primary.bsky.social",
+                aka: "Primary Name",
+                avatar_source: "atproto",
+                avatar_url: "https://pds.example/primary.png"
+              }} = Accounts.unlink_identity(user, "github")
+    end
+
+    test "resets the avatar source when its identity is unlinked" do
+      user = user_fixture()
+
+      auth =
+        atproto_auth("did:plc:unlink3", "avatar.bsky.social",
+          image: "https://pds.example/avatar.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+      assert {:ok, _user} = Accounts.update_avatar_source(user, "atproto")
+      user = Accounts.get_user!(user.id)
+
+      assert {:ok, %User{avatar_source: nil, avatar_url: nil, provider: "github"}} =
+               Accounts.unlink_identity(user, "atproto")
+    end
+
+    test "returns an error when the provider is not linked" do
+      user = user_fixture()
+
+      assert {:error, :not_linked} = Accounts.unlink_identity(user, "atproto")
+    end
+  end
+
+  describe "update_avatar_source/2" do
+    test "copies the stored avatar of the chosen identity" do
+      user = user_fixture()
+
+      auth =
+        atproto_auth("did:plc:source1", "source.bsky.social",
+          image: "https://pds.example/source.png"
+        )
+
+      assert {:ok, :linked} = Accounts.link_identity(user, auth)
+
+      assert {:ok,
+              %User{
+                avatar_source: "atproto",
+                avatar_url: "https://pds.example/source.png"
+              }} = Accounts.update_avatar_source(user, "atproto")
+    end
+
+    test "falls back to the placeholder when the source has no avatar" do
+      user = user_fixture()
+
+      assert {:ok, :linked} =
+               Accounts.link_identity(user, atproto_auth("did:plc:source2", "plain.bsky.social"))
+
+      assert {:ok, %User{avatar_url: nil}} = Accounts.update_avatar_source(user, "atproto")
+    end
+
+    test "refuses a provider that is not linked" do
+      user = user_fixture()
+
+      assert {:error, :not_linked} = Accounts.update_avatar_source(user, "atproto")
     end
   end
 

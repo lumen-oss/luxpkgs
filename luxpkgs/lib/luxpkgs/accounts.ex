@@ -292,6 +292,37 @@ defmodule Luxpkgs.Accounts do
     end
   end
 
+  @doc """
+  Unlinks one of the user's identities.
+
+  Refuses to remove the last identity. When the removed identity was primary,
+  the remaining identity becomes the primary and the display copy follows.
+  """
+  def unlink_identity(%User{} = user, provider) when is_binary(provider) do
+    identities = list_identities(user)
+    identity = Enum.find(identities, &(&1.provider == provider))
+
+    cond do
+      is_nil(identity) ->
+        {:error, :not_linked}
+
+      length(identities) < 2 ->
+        {:error, :last_identity}
+
+      true ->
+        attrs = display_after_unlink(user, identity, List.delete(identities, identity))
+
+        Multi.new()
+        |> Multi.delete(:identity, identity)
+        |> Multi.update(:user, Ecto.Changeset.change(user, attrs))
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{user: user}} -> {:ok, user}
+          {:error, _step, _changeset, _changes} -> {:error, :unlink_failed}
+        end
+    end
+  end
+
   defp upsert_identity(%User{} = user, %Ueberauth.Auth{} = auth, avatar_opts) do
     identity =
       Repo.get_by(UserIdentity, user_id: user.id, provider: to_string(auth.provider)) ||
@@ -317,29 +348,73 @@ defmodule Luxpkgs.Accounts do
     end
   end
 
-  # The users columns are the display copy of the primary identity.
+  # The users columns are the display copy of the primary identity, except for
+  # the avatar, which follows the selected source.
   defp sync_display_copy(%User{} = user, %UserIdentity{} = identity, avatar_opts) do
-    if user.provider == identity.provider do
-      user
-      |> Ecto.Changeset.change(%{
-        username: identity.username,
-        aka: identity.aka,
-        avatar_url: identity.avatar_url
-      })
-      |> User.validate_avatar_url(avatar_opts)
-      |> Repo.update()
-      |> case do
-        {:ok, user} ->
-          user
+    attrs =
+      cond do
+        user.provider == identity.provider and user.avatar_source in [nil, identity.provider] ->
+          %{username: identity.username, aka: identity.aka, avatar_url: identity.avatar_url}
 
-        {:error, changeset} ->
-          Logger.error(
-            "Could not sync the profile of user #{user.id}: #{inspect(changeset.errors)}"
-          )
+        user.provider == identity.provider ->
+          %{username: identity.username, aka: identity.aka}
 
-          user
+        user.avatar_source == identity.provider ->
+          %{avatar_url: identity.avatar_url}
+
+        true ->
+          nil
       end
+
+    if attrs, do: update_display_copy(user, attrs, avatar_opts), else: user
+  end
+
+  defp update_display_copy(%User{} = user, attrs, avatar_opts) do
+    changeset = Ecto.Changeset.change(user, attrs)
+
+    # The avatar is only rechecked when this login writes a new one; the stored
+    # one was already validated against its provider's host.
+    changeset =
+      if Map.has_key?(attrs, :avatar_url) do
+        User.validate_avatar_url(changeset, avatar_opts)
+      else
+        changeset
+      end
+
+    changeset
+    |> Repo.update()
+    |> case do
+      {:ok, user} ->
+        user
+
+      {:error, changeset} ->
+        Logger.error(
+          "Could not sync the profile of user #{user.id}: #{inspect(changeset.errors)}"
+        )
+
+        user
     end
+  end
+
+  # Unlinking copies the stored avatars, which were validated when they were written.
+  defp display_after_unlink(%User{} = user, %UserIdentity{} = removed, remaining) do
+    primary =
+      if user.provider == removed.provider do
+        hd(remaining)
+      else
+        Enum.find(remaining, &(&1.provider == user.provider))
+      end
+
+    avatar_source = if user.avatar_source == removed.provider, do: nil, else: user.avatar_source
+    source = Enum.find(remaining, &(&1.provider == avatar_source)) || primary
+
+    %{
+      provider: primary.provider,
+      username: primary.username,
+      aka: primary.aka,
+      avatar_url: source && source.avatar_url,
+      avatar_source: avatar_source
+    }
   end
 
   # atproto avatars are served by the PDS discovered from the authenticated DID,
@@ -376,6 +451,30 @@ defmodule Luxpkgs.Accounts do
     |> Ecto.Changeset.change(%{avatar_url: avatar_url})
     |> User.validate_avatar_url()
     |> Repo.update()
+  end
+
+  @doc """
+  Chooses which linked identity supplies the displayed avatar.
+
+  Copies the stored URL, so no network call is made.
+  """
+  def update_avatar_source(%User{} = user, provider) do
+    identities = list_identities(user)
+
+    if provider && not Enum.any?(identities, &(&1.provider == provider)) do
+      {:error, :not_linked}
+    else
+      source =
+        Enum.find(identities, &(&1.provider == provider)) ||
+          Enum.find(identities, &(&1.provider == user.provider))
+
+      user
+      |> Ecto.Changeset.change(%{
+        avatar_source: provider,
+        avatar_url: source && source.avatar_url
+      })
+      |> Repo.update()
+    end
   end
 
   def update_bio(%User{} = user, bio) do

@@ -64,6 +64,7 @@ defmodule LuxpkgsWeb.Router do
 
     delete "/logout", UserAuthController, :log_out_user
     post "/settings/identities/:provider", LinkedAccountsController, :create
+    delete "/settings/identities/:provider", LinkedAccountsController, :delete
   end
 
   scope "/admin", LuxpkgsWeb do

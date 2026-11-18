@@ -16,6 +16,7 @@ defmodule Luxpkgs.Accounts.User do
     field :username, :string
     field :aka, :string
     field :avatar_url, :string
+    field :avatar_source, :string
     field :bio, :string
     field :suspended_at, :utc_datetime
     field :suspension_reason, :string
