@@ -162,6 +162,21 @@ defmodule Luxpkgs.AccountsTest do
       assert id == user.id
     end
 
+    test "matches the identity when GitHub sends an integer uid" do
+      user = user_fixture()
+      identity = Repo.get_by!(UserIdentity, user_id: user.id)
+      Repo.update!(Ecto.Changeset.change(identity, uid: "42"))
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        uid: 42,
+        info: %Ueberauth.Auth.Info{nickname: "renamed_on_github"}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+    end
+
     test "does not match a claimed handle with a different uid" do
       user = user_fixture()
       identity = Repo.get_by!(UserIdentity, user_id: user.id)
@@ -182,7 +197,7 @@ defmodule Luxpkgs.AccountsTest do
 
       auth = %Ueberauth.Auth{
         provider: "github",
-        uid: "67890",
+        uid: 67_890,
         info: %Ueberauth.Auth.Info{nickname: identity.username}
       }
 

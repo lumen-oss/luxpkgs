@@ -42,7 +42,7 @@ defmodule Luxpkgs.Accounts do
 
     case find_identity(provider, auth) do
       %UserIdentity{} = identity ->
-        remember_uid(identity, auth.uid)
+        remember_uid(identity, normalize_uid(auth.uid))
         Repo.get(User, identity.user_id)
 
       nil ->
@@ -51,7 +51,7 @@ defmodule Luxpkgs.Accounts do
   end
 
   defp find_identity(provider, %Ueberauth.Auth{} = auth) do
-    identity_by_uid(provider, auth.uid) ||
+    identity_by_uid(provider, normalize_uid(auth.uid)) ||
       identity_by_username(provider, auth.info.nickname) ||
       identity_by_email(provider, auth.info.email)
   end
@@ -59,6 +59,10 @@ defmodule Luxpkgs.Accounts do
   defp identity_by_uid(_provider, nil), do: nil
 
   defp identity_by_uid(provider, uid), do: Repo.get_by(UserIdentity, provider: provider, uid: uid)
+
+  # GitHub sends its numeric account id as an integer, while uids are strings.
+  defp normalize_uid(uid) when is_integer(uid), do: Integer.to_string(uid)
+  defp normalize_uid(uid), do: uid
 
   # GitHub calls the account name "nickname". A username match may only claim an
   # identity that has no uid yet, so a reclaimed handle cannot take over an account.
@@ -355,7 +359,7 @@ defmodule Luxpkgs.Accounts do
   defp identity_attrs(%Ueberauth.Auth{} = auth) do
     %{
       provider: to_string(auth.provider),
-      uid: auth.uid,
+      uid: normalize_uid(auth.uid),
       username: auth.info.nickname,
       aka: auth.info.name,
       avatar_url: auth.info.image
