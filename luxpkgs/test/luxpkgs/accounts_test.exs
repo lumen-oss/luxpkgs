@@ -117,6 +117,36 @@ defmodule Luxpkgs.AccountsTest do
     end
   end
 
+  describe "get_user_by_auth/1" do
+    test "matches a user from the same provider by email" do
+      user = user_fixture(%{email: "same-provider@example.com"})
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        info: %Ueberauth.Auth.Info{nickname: "renamed_on_github", email: user.email}
+      }
+
+      assert %User{id: id} = Accounts.get_user_by_auth(auth)
+      assert id == user.id
+    end
+
+    test "does not match a user from another provider by email" do
+      user = user_fixture(%{email: "shared@example.com"})
+
+      user =
+        user
+        |> Ecto.Changeset.change(provider: "gitlab")
+        |> Luxpkgs.Repo.update!()
+
+      auth = %Ueberauth.Auth{
+        provider: "github",
+        info: %Ueberauth.Auth.Info{nickname: "someone_else", email: user.email}
+      }
+
+      refute Accounts.get_user_by_auth(auth)
+    end
+  end
+
   describe "register_user/1" do
     test "stores the oauth avatar URL" do
       auth = %Ueberauth.Auth{

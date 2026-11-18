@@ -49,10 +49,10 @@ defmodule Luxpkgs.Accounts do
         user
 
       nil ->
-        # Fallback to email-based lookup for legacy compatibility
-        # NOTE: I'm unsure whether we should keep this fallback or not, but it's here for now.
+        # The email fallback stays scoped to the provider: a row from another
+        # provider with the same email must never be matched.
         if auth.info.email do
-          get_user_by_email(auth.info.email)
+          Repo.get_by(User, provider: provider, email: auth.info.email)
         else
           nil
         end
